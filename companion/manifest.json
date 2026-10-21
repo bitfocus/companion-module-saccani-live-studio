@@ -1,0 +1,42 @@
+{
+  "$schema": "../node_modules/@companion-module/base/assets/manifest.schema.json",
+  "type": "connection",
+  "id": "saccani-live-studio",
+  "name": "Saccani Live Studio",
+  "shortname": "Saccani Studio",
+  "description": "HTTP/WebSocket playback, audio volume, jog, replay, Blackmagic camera controls, ATEM headphone controls and optional Program routing",
+  "version": "0.4.1",
+  "license": "MIT",
+  "repository": "https://github.com/Supergiovane/SaccaniLiveStudioForCompanion",
+  "bugs": "https://github.com/Supergiovane/SaccaniLiveStudioForCompanion/issues",
+  "maintainers": [
+    {
+      "name": "Massimo Saccani",
+      "email": "maxsupergiovane@icloud.com"
+    }
+  ],
+  "runtime": {
+    "type": "node22",
+    "api": "nodejs-ipc",
+    "apiVersion": "2.0.0",
+    "entrypoint": "../dist/main.js",
+    "permissions": {
+      "native-addons": true
+    }
+  },
+  "legacyIds": [],
+  "manufacturer": "Saccani",
+  "products": ["Live Studio"],
+  "keywords": [
+    "macOS",
+    "video",
+    "audio",
+    "replay",
+    "playback",
+    "jog",
+    "ATEM",
+    "headphones",
+    "camera",
+    "Blackmagic"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "name": "companion-module-saccani-live-studio",
+  "version": "0.4.1",
+  "description": "Saccani Live Studio playback, audio, jog, replay and ATEM headphone controls for Bitfocus Companion",
+  "type": "module",
+  "main": "dist/main.js",
+  "license": "MIT",
+  "author": "Massimo Saccani",
+  "engines": {
+    "node": "^22.20"
+  },
+  "packageManager": "yarn@4.17.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "test": "yarn build && node --experimental-strip-types --test tests/*.test.ts",
+    "package": "yarn check && yarn test && companion-module-build --prerelease --output pkg/saccani-live-studio-0.4.1 && SACCANI_MODULE_ENTRY=../pkg/saccani-live-studio/main.js node --experimental-strip-types --test tests/module.test.ts",
+    "format": "prettier --write src tests companion package.json tsconfig.json README.md"
+  },
+  "dependencies": {
+    "@companion-module/base": "2.0.4",
+    "atem-connection": "^3.10.3"
+  },
+  "devDependencies": {
+    "@companion-module/tools": "3.1.0",
+    "@types/node": "22.19.17",
+    "eslint": "10.3.2",
+    "prettier": "3.8.3",
+    "typescript": "6.0.3"
+  }
+}

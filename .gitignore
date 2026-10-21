@@ -1,0 +1,8 @@
+node_modules/
+dist/
+pkg/
+.yarn/
+.pnp.*
+.DS_Store
+*.log
+*.tgz
