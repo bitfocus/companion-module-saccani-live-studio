@@ -11,7 +11,6 @@ import {
   type ChatStatus,
   type ChatTab,
 } from "./chat.ts";
-import type { ProgramRoute } from "./program-routing.ts";
 export type Tab = {
   id: number;
   sourceKind: string;
@@ -23,8 +22,6 @@ export type Tab = {
   outputActive: boolean;
   sourceID?: string;
   completionID?: string;
-  returnRoutingID?: string | null;
-  returnRoutingPending?: boolean;
   position?: number;
   duration?: number;
   frameRate?: number;
@@ -73,8 +70,7 @@ export type Transport =
   | "stop"
   | "restart"
   | "toggle"
-  | "play-pause"
-  | "complete-return-routing";
+  | "play-pause";
 const uuidPattern =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -245,14 +241,9 @@ export class StudioClient {
     id: number,
     action: Transport,
     sourceID?: string,
-    returnRoutingID?: string,
   ): Promise<APIOperation> {
     return this.serial(async () => {
-      const { status, tab } = await this.tab(
-        id,
-        sourceID,
-        action === "complete-return-routing",
-      );
+      const { status, tab } = await this.tab(id, sourceID);
       if (
         ["pause", "restart"].includes(action) &&
         status.playbackTransportControl !== true
@@ -266,22 +257,12 @@ export class StudioClient {
           "Play/Pause toggle requires a video tab with jog support.",
         );
       if (
-        ![
-          "play",
-          "pause",
-          "stop",
-          "restart",
-          "toggle",
-          "play-pause",
-          "complete-return-routing",
-        ].includes(action)
+        !["play", "pause", "stop", "restart", "toggle", "play-pause"].includes(
+          action,
+        )
       )
         throw new Error("Invalid transport command.");
-      return this.command(
-        tab,
-        action,
-        returnRoutingID ? { returnRoutingID } : {},
-      );
+      return this.command(tab, action);
     });
   }
   seek(
@@ -376,7 +357,6 @@ export class StudioClient {
     mode: "configured" | "source",
     tabID: number,
     onError: (error: Error) => void,
-    route?: ProgramRoute,
   ): Promise<void> {
     if (this.closed) throw new Error("Connection closed.");
     if (this.replayOperation)
@@ -397,7 +377,6 @@ export class StudioClient {
         await cancel?.();
       },
     };
-    let prepared = false;
     try {
       if (!["configured", "source"].includes(mode))
         throw new Error("Invalid replay settings.");
@@ -442,63 +421,20 @@ export class StudioClient {
         );
       const network = this.network,
         id = randomUUID().toUpperCase();
-      controller.signal.throwIfAborted();
-      await route?.prepare();
-      prepared = true;
-      controller.signal.throwIfAborted();
-      const returnRoutingID = route?.deferReturn ? randomUUID() : undefined;
       let submission: Promise<APIOperation> | undefined;
       let cancelPromise: Promise<void> | undefined;
-      let sourceID: string | undefined,
-        routed = false,
-        finished = false;
-      let after: Promise<void> | undefined,
-        acknowledged: Promise<void> | undefined;
-      const applyAfter = () =>
-        (after ??= Promise.resolve().then(() => route?.after()));
-      // The app holds the replay output until the Program/SRC OUT return is confirmed.
-      const acknowledge = () =>
-        (acknowledged ??=
-          returnRoutingID && sourceID
-            ? network
-                .command(tab, "complete-return-routing", {
-                  sourceID,
-                  returnRoutingID,
-                })
-                .then(() => undefined)
-            : Promise.resolve());
-      const replayTab = async () =>
-        (
-          (await network.snapshot(true)).playback?.tabs as Tab[] | undefined
-        )?.find((item) => item.id === tab);
       cancel = () =>
         (cancelPromise ??= (async () => {
           await submission?.catch(() => undefined);
-          try {
-            if (returnRoutingID && !sourceID) {
-              const selected = await replayTab();
-              if (
-                selected?.returnRoutingID?.toUpperCase() ===
-                returnRoutingID.toUpperCase()
-              )
-                sourceID = selected.sourceID;
-            }
-            if (routed) await applyAfter();
-          } finally {
-            try {
-              await acknowledge();
-            } finally {
-              await network.stopReplay(id);
-            }
-          }
+          await network.stopReplay(id);
         })());
+      controller.signal.throwIfAborted();
       submission = network.submit(
         "/api/v1/replay/start",
         {
           path,
           mode: mode === "configured" ? "configured" : `source${tab}`,
           audio: "mac",
-          ...(returnRoutingID ? { returnRoutingID } : {}),
         },
         id,
       );
@@ -509,56 +445,12 @@ export class StudioClient {
         throw error;
       }
       void (async () => {
-        let monitor: Promise<void> | undefined;
         try {
-          const completion = network.wait(id, 45000, controller.signal);
-          completion.catch(() => undefined);
-          if (route)
-            monitor = (async () => {
-              while (!finished && !controller.signal.aborted) {
-                const selected = await replayTab();
-                if (
-                  !routed &&
-                  selected?.playing &&
-                  !selected.loading &&
-                  selected.replay
-                ) {
-                  sourceID = selected.sourceID;
-                  routed = true;
-                  await route.before();
-                }
-                if (
-                  returnRoutingID &&
-                  selected?.returnRoutingPending &&
-                  selected.returnRoutingID?.toUpperCase() ===
-                    returnRoutingID.toUpperCase()
-                ) {
-                  sourceID = selected.sourceID;
-                  if (routed) await applyAfter();
-                  await acknowledge();
-                }
-                await new Promise((resolve) => setTimeout(resolve, 100));
-              }
-            })();
-          await (monitor ? Promise.race([completion, monitor]) : completion);
-          finished = true;
-          await monitor;
-          if (routed) await applyAfter();
+          await network.wait(id, 45000, controller.signal);
         } catch (error) {
-          finished = true;
-          await monitor?.catch(() => undefined);
-          let failure =
-            error instanceof Error ? error : new Error(String(error));
-          if (!controller.signal.aborted && routed && !after) {
-            routed = false;
-            await route!.rollback().catch((rollback: unknown) => {
-              failure = new Error(
-                `${failure.message}; ATEM restoration after error: ${rollback instanceof Error ? rollback.message : String(rollback)}`,
-              );
-            });
-          }
           await cancel!().catch(() => undefined);
-          if (!controller.signal.aborted) onError(failure);
+          if (!controller.signal.aborted)
+            onError(error instanceof Error ? error : new Error(String(error)));
         } finally {
           if (controller.signal.aborted) await cancel!().catch(() => undefined);
           this.pending.delete(controller);
@@ -569,7 +461,6 @@ export class StudioClient {
       })();
       return;
     } catch (error) {
-      if (prepared) await route?.rollback().catch(() => undefined);
       this.pending.delete(controller);
       if (this.replayOperation?.controller === controller)
         this.replayOperation = undefined;

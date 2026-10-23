@@ -1,7 +1,7 @@
 {
   "name": "companion-module-saccani-live-studio",
-  "version": "0.5.0",
-  "description": "Saccani Live Studio playback, audio, jog, replay, live chat and ATEM controls for Bitfocus Companion",
+  "version": "0.6.0",
+  "description": "Saccani Live Studio playback, audio, jog, replay and live chat controls for Bitfocus Companion",
   "type": "module",
   "main": "dist/main.js",
   "license": "MIT",
@@ -14,17 +14,16 @@
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "yarn build && node --experimental-strip-types --test tests/*.test.ts",
-    "package": "yarn check && yarn test && companion-module-build --prerelease --output pkg/saccani-live-studio-0.5.0 && SACCANI_MODULE_ENTRY=../pkg/saccani-live-studio/main.js node --experimental-strip-types --test tests/module.test.ts",
+    "package": "yarn check && yarn test && companion-module-build --prerelease --output pkg/saccani-live-studio-0.6.0 && SACCANI_MODULE_ENTRY=../pkg/saccani-live-studio/main.js node --experimental-strip-types --test tests/module.test.ts",
     "format": "prettier --write src tests companion package.json tsconfig.json README.md"
   },
   "dependencies": {
-    "@companion-module/base": "2.0.4",
-    "atem-connection": "^3.10.3"
+    "@companion-module/base": "2.0.4"
   },
   "devDependencies": {
     "@companion-module/tools": "3.1.0",
     "@types/node": "22.19.17",
-    "eslint": "10.3.2",
+    "eslint": "10.2.0",
     "prettier": "3.8.3",
     "typescript": "6.0.3"
   }

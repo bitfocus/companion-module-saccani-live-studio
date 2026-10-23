@@ -15,7 +15,6 @@ import {
   type ChatMessage,
   type ChatStatus,
 } from "../src/chat.ts";
-import type { ProgramRoute } from "../src/program-routing.ts";
 
 const wait = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -28,7 +27,6 @@ type Request = {
   offsetSeconds?: number;
   mode?: string;
   messageID?: string;
-  returnRoutingID?: string;
 };
 const message = (
   id: string,
@@ -179,8 +177,6 @@ async function fixture() {
             chatTab!.messages.find((item) => item.id === command.messageID) ??
             null;
         else if (command.action === "chat-hide") chatTab!.onAir = null;
-        else if (command.action === "complete-return-routing")
-          tab!.returnRoutingPending = false;
         else if (command.action === "set-volume") tab!.volume = command.volume;
         else if (command.action === "seek")
           tab!.position = tab!.position! + command.offsetSeconds!;
@@ -384,7 +380,6 @@ test("replay returns after submission, prevents duplicate starts, and cancels on
     await wait(100);
     assert.equal(f.replays.length, 1);
     assert.equal(f.replays[0]!.mode, "configured");
-    assert.equal(f.replays[0]!.returnRoutingID, undefined);
     assert.equal(f.replay.busy, true);
     await f.client.stopReplay();
     await wait(100);
@@ -447,101 +442,6 @@ test("replay targets an exact Replay tab, validates its output and closing cance
     assert.equal(f.replay.busy, false);
     assert.equal(f.cancellations.length, 1);
     await assert.rejects(f.client.transport(4, "play"), /closed/);
-  } finally {
-    await f.close();
-  }
-});
-
-function recordingRoute(failBefore = false) {
-  const calls: string[] = [];
-  const route: ProgramRoute = {
-    deferReturn: true,
-    prepare: async () => {
-      calls.push("prepare");
-    },
-    before: async () => {
-      calls.push("before");
-      if (failBefore) throw new Error("ATEM refused the input");
-    },
-    after: async () => {
-      calls.push("after");
-    },
-    rollback: async () => {
-      calls.push("rollback");
-    },
-  };
-  return { calls, route };
-}
-
-test("routed replay switches after confirmed start and confirms the return before the app restores output", async () => {
-  const f = await fixture(),
-    errors: Error[] = [];
-  const { calls, route } = recordingRoute();
-  try {
-    const tab = f.status.tabs[0]!;
-    await f.client.startReplay(
-      "/remote-only/clip.mp4",
-      "source",
-      4,
-      (error) => errors.push(error),
-      route,
-    );
-    const request = f.replays[0]!;
-    assert.match(String(request.returnRoutingID), /^[0-9a-f-]{36}$/i);
-    assert.deepEqual(calls, ["prepare"]);
-    // Loading is not playback: Program must not change yet.
-    Object.assign(tab, { replay: true, loading: true, playing: false });
-    await f.publish();
-    await wait(250);
-    assert.deepEqual(calls, ["prepare"]);
-    Object.assign(tab, { loading: false, playing: true });
-    await f.publish();
-    await wait(250);
-    assert.deepEqual(calls, ["prepare", "before"]);
-    Object.assign(tab, {
-      playing: false,
-      returnRoutingPending: true,
-      returnRoutingID: request.returnRoutingID,
-    });
-    await f.publish();
-    await wait(250);
-    assert.deepEqual(calls, ["prepare", "before", "after"]);
-    const ack = f.commands.find(
-      (command) => command.action === "complete-return-routing",
-    );
-    assert.equal(ack?.tab, 4);
-    assert.equal(ack?.sourceID, f.videoID);
-    assert.equal(ack?.returnRoutingID, request.returnRoutingID);
-    f.operations.get(request.id)!.state = "completed";
-    Object.assign(tab, { replay: false });
-    await f.publish();
-    await wait(250);
-    assert.deepEqual(calls, ["prepare", "before", "after"]);
-    assert.deepEqual(errors, []);
-    assert.equal(f.cancellations.length, 0);
-  } finally {
-    await f.close();
-  }
-});
-
-test("routed replay rolls back the ATEM and stops when switching fails", async () => {
-  const f = await fixture(),
-    errors: Error[] = [];
-  const { calls, route } = recordingRoute(true);
-  try {
-    await f.client.startReplay(
-      "/remote-only/clip.mp4",
-      "source",
-      4,
-      (error) => errors.push(error),
-      route,
-    );
-    Object.assign(f.status.tabs[0]!, { replay: true, playing: true });
-    await f.publish();
-    await wait(300);
-    assert.deepEqual(calls, ["prepare", "before", "rollback"]);
-    assert.match(errors[0]?.message ?? "", /ATEM refused/);
-    assert.deepEqual(f.cancellations, [f.replays[0]!.id]);
   } finally {
     await f.close();
   }

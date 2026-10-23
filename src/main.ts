@@ -15,14 +15,6 @@ import {
   type Snapshot,
   type Transport,
 } from "./protocol.js";
-import type { HeadphoneMuteMode } from "./atem-headphones.js";
-import { Atem } from "atem-connection";
-import {
-  ATEMProgramConnection,
-  RESTORE_PREVIOUS_INPUT,
-  type ReplayOutputOptions,
-  type RoutingOptions,
-} from "./program-routing.js";
 import {
   ChatBrowser,
   keyCommand,
@@ -30,22 +22,7 @@ import {
   type ChatMessage,
   type ChatPick,
 } from "./chat.js";
-import { PlaybackRouting } from "./playback-routing.js";
-import {
-  cameraGroups,
-  cameraParameters,
-  cameraParameter,
-  cameraChannels,
-  cameraDisplays,
-  type CameraOptions,
-  type CameraGroup,
-} from "./atem-camera.js";
-
-type CameraActionOptions = CameraOptions & {
-  overlay?: number;
-  infoHelp?: string;
-};
-type Config = { replayFile: string; url: string; atemHost?: string };
+type Config = { replayFile: string; url: string };
 type Secrets = { token?: string };
 type TransportActions =
   | "play"
@@ -58,32 +35,26 @@ export type ModuleSchema = {
   config: Config;
   secrets: Secrets;
   actions: {
-    [K in TransportActions]: { options: { tab: number } & RoutingOptions };
+    [K in TransportActions]: { options: { tab: number } };
   } & {
     jog: {
       options: { tab: number; amount: number; unit: "seconds" | "frames" };
     };
     volume: { options: { tab: number; value: number; relative: boolean } };
-    headphones_volume: { options: { value: number; relative: boolean } };
-    headphones_mute: { options: { mode: HeadphoneMuteMode } };
     replay_start: {
       options: {
         path: string;
         mode: "configured" | "source";
         tab: number;
-      } & RoutingOptions &
-        ReplayOutputOptions;
+      };
     };
     replay_stop: { options: Record<string, never> };
     chat_toggle: { options: { tab: number; pick: ChatPick } };
     chat_hide: { options: { tab: number } };
     chat_browse: { options: { tab: number; steps: number } };
     chat_preview: { options: { tab: number } };
-  } & { [K in `camera_${CameraGroup}`]: { options: CameraActionOptions } };
+  };
   feedbacks: {
-    headphones_muted: { type: "boolean"; options: Record<string, never> };
-    headphones_available: { type: "boolean"; options: Record<string, never> };
-    camera_available: { type: "boolean"; options: Record<string, never> };
     offline: { type: "boolean"; options: Record<string, never> };
     replay_busy: { type: "boolean"; options: Record<string, never> };
   } & {
@@ -176,41 +147,11 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
   private generation = 0;
   private tabSignature = "";
   private knownTabs = new Set([1, 2, 3]);
-  private knownCameras = new Set([1]);
   private knownChatTabs = new Set<number>();
   private chatBrowser = new ChatBrowser();
   private lastError = "";
-  private program: ATEMProgramConnection;
-  private playbackRouting: PlaybackRouting;
-  private atemSignature = "";
-
-  constructor(internal: unknown, createATEM?: () => Atem) {
+  constructor(internal: unknown) {
     super(internal);
-    this.program = new ATEMProgramConnection(
-      () => {
-        for (const camera of this.program.cameras)
-          this.knownCameras.add(camera.value);
-        const signature = JSON.stringify([
-          this.program.online,
-          this.program.inputs,
-          this.program.headphones !== undefined,
-          this.program.cameras,
-          this.program.cameraAvailable,
-          this.program.auxOutputs,
-          this.program.auxSources,
-        ]);
-        if (signature !== this.atemSignature) {
-          this.atemSignature = signature;
-          this.definitions();
-        }
-        this.publishState();
-      },
-      (error) => this.reportError(error),
-      createATEM,
-    );
-    this.playbackRouting = new PlaybackRouting((options) =>
-      this.program.route(options),
-    );
   }
   getConfigFields(): SomeCompanionConfigField[] {
     return [
@@ -220,7 +161,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         label: "Saccani Live Studio connection",
         width: 12,
         value:
-          "For HTTP / WebSocket, enable File → Remote Control… in the app. Leave the token blank unless Require access token is enabled in the app. Enable LAN access for Companion on another computer. Load media and open video outputs in the app. Replay paths always belong to the app Mac. Camera and headphone controls connect directly to the ATEM and work independently of the app.",
+          "For HTTP / WebSocket, enable File → Remote Control… in the app. Leave the token blank unless Require access token is enabled in the app. Enable LAN access for Companion on another computer. Load media and open video outputs in the app. Replay paths always belong to the app Mac.",
       },
       {
         type: "textinput",
@@ -234,14 +175,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         id: "token",
         label: "API access token (optional)",
         width: 12,
-      },
-      {
-        type: "textinput",
-        id: "atemHost",
-        label:
-          "ATEM IP address (camera controls, headphones / optional Program routing)",
-        width: 12,
-        default: "",
       },
       {
         type: "textinput",
@@ -272,17 +205,11 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
     clearTimeout(this.timer);
     const oldClient = this.client;
     this.client = undefined;
-    await this.playbackRouting.close((error) => this.reportError(error));
     await oldClient?.close();
-    await this.program.close();
     if (generation !== this.generation) return;
-    this.playbackRouting = new PlaybackRouting((options) =>
-      this.program.route(options),
-    );
     this.config = {
       url: config.url || "http://127.0.0.1:8765",
       replayFile: config.replayFile || "",
-      atemHost: config.atemHost?.trim() || "",
     };
     this.snapshot = {};
     this.lastError = "";
@@ -290,8 +217,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
     this.chatBrowser.clear();
     this.definitions();
     try {
-      await this.program.configure(this.config.atemHost || "");
-      if (generation !== this.generation) return;
       this.client = new StudioClient({
         url: this.config.url,
         token: this.secrets.token ?? "",
@@ -308,9 +233,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
     clearTimeout(this.timer);
     const client = this.client;
     this.client = undefined;
-    await this.playbackRouting.close((error) => this.reportError(error));
     await client?.close();
-    await this.program.close();
   }
   private async poll(generation: number): Promise<void> {
     const client = this.client;
@@ -319,10 +242,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       const snapshot = await client.snapshot();
       if (generation !== this.generation) return;
       this.snapshot = snapshot;
-      await this.playbackRouting.observe(snapshot.playback, (error) => {
-        if (generation === this.generation) this.reportError(error);
-      });
-      if (generation !== this.generation) return;
       const signature = JSON.stringify([
         snapshot.playback?.tabs.map((tab) => [
           tab.id,
@@ -350,10 +269,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
     } catch (error) {
       if (generation !== this.generation) return;
       this.snapshot = {};
-      await this.playbackRouting.observe(undefined, (error) => {
-        if (generation === this.generation) this.reportError(error);
-      });
-      if (generation !== this.generation) return;
       this.updateStatus(InstanceStatus.ConnectionFailure, String(error));
       this.publishState();
     }
@@ -446,18 +361,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       this.reportError(error);
     }
   }
-  private async executeATEM(work: () => Promise<void>): Promise<void> {
-    const generation = this.generation;
-    try {
-      await work();
-      if (generation === this.generation) {
-        this.lastError = "";
-        this.publishState();
-      }
-    } catch (error) {
-      if (generation === this.generation) this.reportError(error);
-    }
-  }
   private reportError(error: unknown): void {
     this.lastError = error instanceof Error ? error.message : String(error);
     this.log("warn", this.lastError);
@@ -467,220 +370,24 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
     return this.snapshot.playback?.tabs.find((tab) => tab.id === id)?.sourceID;
   }
   private definitions(): void {
-    const cameraActions = {} as Record<
-      `camera_${CameraGroup}`,
-      CompanionActionDefinition<CameraActionOptions>
-    >;
-    for (const group of Object.keys(cameraGroups) as CameraGroup[]) {
-      const parameters = cameraParameters.filter(
-        (parameter) => parameter.group === group,
-      );
-      const initial = parameters[0]!;
-      const visible = (filter: (parameter: typeof initial) => boolean) =>
-        parameters
-          .filter(filter)
-          .map(
-            (parameter) =>
-              "$(options:parameter) == " + JSON.stringify(parameter.id),
-          )
-          .join(" || ") || "false";
-      const numericVisible = visible(
-        (parameter) => !parameter.trigger && !parameter.choices,
-      );
-      cameraActions[`camera_${group}`] = {
-        name: cameraGroups[group],
-        options: [
-          {
-            id: "camera",
-            type: "dropdown",
-            label: "Blackmagic camera input / Camera ID",
-            default: 1,
-            choices: this.program.cameras.length
-              ? this.program.cameras.map((input) => ({
-                  id: input.value,
-                  label: input.name,
-                }))
-              : [{ id: 1, label: "CAM 1 · connect ATEM to list inputs" }],
-          },
-          {
-            id: "parameter",
-            type: "dropdown",
-            label: "Parameter",
-            default: initial.id,
-            disableAutoExpression: true,
-            choices: parameters.map((parameter) => ({
-              id: parameter.id,
-              label:
-                parameter.name +
-                (parameter.unit ? " (" + parameter.unit + ")" : ""),
-            })),
-          },
-          {
-            id: "operation",
-            type: "dropdown",
-            label: "On press",
-            default: initial.choices ? "set" : "increase",
-            isVisibleExpression: numericVisible,
-            choices: [
-              { id: "set", label: "Set value" },
-              { id: "increase", label: "Increase" },
-              { id: "decrease", label: "Decrease" },
-            ],
-          },
-          {
-            id: "value",
-            type: "number",
-            label: "Value / change (positive step for Increase / Decrease)",
-            default: initial.choices ? initial.default : initial.step,
-            min: -2147483648,
-            max: 2147483647,
-            step: 0.01,
-            isVisibleExpression: numericVisible,
-          },
-          ...(group === "color"
-            ? [
-                {
-                  id: "channel" as const,
-                  type: "dropdown" as const,
-                  label: "Color wheel channel",
-                  default: 3,
-                  choices: cameraChannels.map((label, id) => ({ id, label })),
-                  isVisibleExpression: visible(
-                    (parameter) => !!parameter.channels,
-                  ),
-                },
-              ]
-            : []),
-          ...(group === "monitor"
-            ? [
-                {
-                  id: "display" as const,
-                  type: "dropdown" as const,
-                  label: "Display / output for video information",
-                  default: 2,
-                  choices: cameraDisplays.map((display) => ({
-                    id: display.value,
-                    label: display.name,
-                  })),
-                  isVisibleExpression: visible(
-                    (parameter) => !!parameter.displays,
-                  ),
-                },
-                {
-                  id: "overlay" as const,
-                  type: "dropdown" as const,
-                  label: "Information on video",
-                  default: 1,
-                  choices: cameraParameter("info").choices!.map((choice) => ({
-                    id: choice.value,
-                    label: choice.name,
-                  })),
-                  isVisibleExpression: visible(
-                    (parameter) => !!parameter.displays,
-                  ),
-                },
-                {
-                  id: "infoHelp" as const,
-                  type: "static-text" as const,
-                  label: "Video information",
-                  value:
-                    "Select the information layout on the chosen camera display or video output. Available overlays depend on the camera model.",
-                  isVisibleExpression: visible(
-                    (parameter) => !!parameter.displays,
-                  ),
-                },
-              ]
-            : []),
-        ],
-        callback: (event) =>
-          this.executeATEM(() => {
-            const parameter = cameraParameter(event.options.parameter);
-            if (parameter.group !== group)
-              throw new Error(
-                "Choose a parameter in this camera function group",
-              );
-            return this.program.cameraCommand({
-              ...event.options,
-              camera: Number(event.options.camera),
-              value: Number(
-                parameter.displays
-                  ? (event.options.overlay ?? event.options.value)
-                  : event.options.value,
-              ),
-              channel: Number(event.options.channel ?? 3),
-              display: Number(event.options.display ?? 2),
-              operation: parameter.trigger
-                ? "trigger"
-                : parameter.choices
-                  ? "set"
-                  : event.options.operation,
-            });
-          }),
-      };
-    }
-    const routingFields = [
-      {
-        id: "studioRouting" as const,
-        type: "checkbox" as const,
-        label: "Change ATEM input before / after playback",
-        default: false,
-        disableAutoExpression: true,
-      },
-      {
-        id: "studioBefore" as const,
-        type: "dropdown" as const,
-        label: "Program input before playback",
-        tooltip:
-          "Selected only after the app confirms playback has started and its output is ready.",
-        default: "unchanged" as const,
-        isVisibleExpression: "$(options:studioRouting)",
-        choices: [
-          { id: "unchanged", label: "Do not change" },
-          ...this.program.inputs,
-        ],
-      },
-      {
-        id: "studioAfter" as const,
-        type: "dropdown" as const,
-        label: "Program input after playback",
-        default: "unchanged" as const,
-        isVisibleExpression: "$(options:studioRouting)",
-        choices: [
-          { id: "unchanged", label: "Do not change" },
-          {
-            id: RESTORE_PREVIOUS_INPUT,
-            label: "Restore Previous Input",
-          },
-          ...this.program.inputs,
-        ],
-      },
-    ];
     const transportAction = (
       id: TransportActions,
-    ): CompanionActionDefinition<{ tab: number } & RoutingOptions> => ({
+    ): CompanionActionDefinition<{ tab: number }> => ({
       name: transportNames[id],
-      options: [
-        this.tabField(),
-        ...(["play", "restart", "toggle", "play_pause"].includes(id)
-          ? routingFields
-          : []),
-      ],
+      options: [this.tabField()],
       callback: (event) => {
         const tab = Number(event.options.tab),
           sourceID = this.sourceID(tab);
         return this.execute((client) =>
-          this.playbackRouting.transport(
-            client,
+          client.transport(
             tab,
             (id === "play_pause" ? "play-pause" : id) as Transport,
-            event.options,
             sourceID,
           ),
         );
       },
     });
     this.setActionDefinitions({
-      ...cameraActions,
       play: transportAction("play"),
       pause: transportAction("pause"),
       stop: transportAction("stop"),
@@ -747,53 +454,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
           );
         },
       },
-      headphones_volume: {
-        name: "ATEM headphones: set / change volume",
-        options: [
-          {
-            id: "value",
-            type: "number",
-            label: "Volume / change (dB; absolute: −60 to +10)",
-            default: 1,
-            min: -70,
-            max: 70,
-            step: 0.1,
-          },
-          {
-            id: "relative",
-            type: "checkbox",
-            label: "Relative change (negative = quieter)",
-            default: true,
-          },
-        ],
-        callback: (event) =>
-          this.executeATEM(() =>
-            this.program.headphoneVolume(
-              Number(event.options.value),
-              event.options.relative,
-            ),
-          ),
-      },
-      headphones_mute: {
-        name: "ATEM headphones: mute Program listening",
-        options: [
-          {
-            id: "mode",
-            type: "dropdown",
-            label: "Mute command",
-            default: "toggle",
-            choices: [
-              { id: "toggle", label: "Toggle mute" },
-              { id: "mute", label: "Mute" },
-              { id: "unmute", label: "Unmute" },
-            ],
-          },
-        ],
-        callback: (event) =>
-          this.executeATEM(() =>
-            this.program.headphoneMute(event.options.mode),
-          ),
-      },
       replay_start: {
         name: "Replay final 15 seconds of MP4",
         options: [
@@ -821,36 +481,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
             ],
           },
           this.replayTabField(),
-          ...routingFields,
-          {
-            id: "replayRouting",
-            type: "checkbox",
-            label: "Change SRC OUT during playback",
-            default: false,
-            disableAutoExpression: true,
-          },
-          {
-            id: "replayAux",
-            type: "dropdown",
-            label: "SRC OUT output",
-            tooltip:
-              "Switched after the app confirms replay has started; its previous source returns before the app restores the video output.",
-            default: this.program.auxOutputs[0]?.id ?? 1,
-            isVisibleExpression: "$(options:replayRouting)",
-            choices: this.program.auxOutputs.length
-              ? this.program.auxOutputs
-              : [{ id: 1, label: "SRC OUT 1 · connect ATEM to list outputs" }],
-          },
-          {
-            id: "replaySource",
-            type: "dropdown",
-            label: "Source on SRC OUT during playback",
-            default: this.program.auxSources[0]?.id ?? 0,
-            isVisibleExpression: "$(options:replayRouting)",
-            choices: this.program.auxSources.length
-              ? this.program.auxSources
-              : [{ id: 0, label: "Connect ATEM to list sources" }],
-          },
         ],
         callback: (event) =>
           this.execute((client) => {
@@ -866,7 +496,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
                 this.log("warn", error.message);
                 this.setVariableValues({ last_error: error.message });
               },
-              this.program.replayRoute(event.options),
             );
           }),
       },
@@ -983,31 +612,10 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       },
     });
     this.setFeedbackDefinitions({
-      camera_available: {
-        type: "boolean",
-        name: "ATEM Blackmagic camera control available",
-        options: [],
-        defaultStyle: { bgcolor: 0x176b34, color: 0xffffff },
-        callback: () => this.program.cameraAvailable,
-      },
       playing: tabFeedback("playing"),
       ready: tabFeedback("ready"),
       busy: tabFeedback("busy"),
       output: tabFeedback("output"),
-      headphones_muted: {
-        type: "boolean",
-        name: "ATEM headphone Program listening muted",
-        options: [],
-        defaultStyle: { bgcolor: 0xb02727, color: 0xffffff },
-        callback: () => this.program.headphones?.muted === true,
-      },
-      headphones_available: {
-        type: "boolean",
-        name: "ATEM headphone control available",
-        options: [],
-        defaultStyle: { bgcolor: 0x176b34, color: 0xffffff },
-        callback: () => this.program.headphones !== undefined,
-      },
       offline: {
         type: "boolean",
         name: "App offline",
@@ -1058,15 +666,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       tab_count: { name: "Number of tabs" },
       last_error: { name: "Last command error" },
       replay_busy: { name: "Replay active or loading" },
-      atem_headphones_available: { name: "ATEM headphone control available" },
-      atem_headphones_volume: { name: "ATEM headphone volume (dB)" },
-      atem_headphones_muted: { name: "ATEM headphone Program listening muted" },
-      atem_online: { name: "ATEM connected" },
-      atem_camera_available: {
-        name: "ATEM Blackmagic camera control available",
-      },
-      atem_program_input: { name: "ATEM Program input number" },
-      atem_program_name: { name: "ATEM Program input name" },
       replay_tab: { name: "Configured replay tab" },
     };
     for (const id of this.knownTabs)
@@ -1075,27 +674,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
     for (const id of this.knownChatTabs)
       for (const [key, name] of Object.entries(chatVariableNames))
         variables[`chat_${id}_${key}`] = { name: `Chat tab ${id}: ${name}` };
-    for (const camera of this.knownCameras)
-      for (const parameter of cameraParameters.filter(
-        (parameter) => !parameter.trigger,
-      ))
-        for (const channel of parameter.channels ? [0, 1, 2, 3] : [3])
-          variables[
-            "camera_" +
-              camera +
-              "_" +
-              parameter.id +
-              (parameter.channels
-                ? "_" + cameraChannels[channel]!.toLowerCase()
-                : "")
-          ] = {
-            name:
-              "Camera " +
-              camera +
-              ": " +
-              parameter.name +
-              (parameter.channels ? " " + cameraChannels[channel] : ""),
-          };
     this.setVariableDefinitions(variables);
     this.presets();
   }
@@ -1106,15 +684,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       last_error: this.lastError,
       replay_busy: this.snapshot.replay?.busy ?? false,
       replay_tab: this.snapshot.replay?.replayTab ?? 0,
-      atem_headphones_available: this.program.headphones !== undefined,
-      atem_headphones_volume: this.program.headphones?.volumeDb ?? "",
-      atem_headphones_muted: this.program.headphones?.muted ?? false,
-      atem_online: this.program.online,
-      atem_camera_available: this.program.cameraAvailable,
-      atem_program_input: this.program.input ?? "",
-      atem_program_name:
-        this.program.inputs.find((input) => input.id === this.program.input)
-          ?.label ?? "",
     };
     for (const id of this.knownTabs) {
       const tab = this.snapshot.playback?.tabs.find((item) => item.id === id),
@@ -1161,24 +730,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       for (const [key, value] of Object.entries(data))
         values[`chat_${id}_${key}`] = value;
     }
-    for (const camera of this.knownCameras)
-      for (const parameter of cameraParameters.filter(
-        (parameter) => !parameter.trigger,
-      ))
-        for (const channel of parameter.channels ? [0, 1, 2, 3] : [3])
-          values[
-            "camera_" +
-              camera +
-              "_" +
-              parameter.id +
-              (parameter.channels
-                ? "_" + cameraChannels[channel]!.toLowerCase()
-                : "")
-          ] =
-            this.program.cameraAvailable &&
-            this.program.cameras.some((input) => input.value === camera)
-              ? (this.program.camera.value(camera, parameter.id, channel) ?? "")
-              : "";
     this.setVariableValues(values);
     this.checkAllFeedbacks();
   }
@@ -1190,122 +741,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         type: "simple";
         presets: string[];
       }[] = [];
-    for (const group of Object.keys(cameraGroups) as CameraGroup[]) {
-      const ids: string[] = [];
-      for (const camera of this.program.cameras.length
-        ? this.program.cameras.map((input) => input.value)
-        : [1]) {
-        for (const parameter of cameraParameters.filter(
-          (parameter) => parameter.group === group,
-        )) {
-          const variants = parameter.trigger
-            ? [
-                {
-                  id: "trigger",
-                  label: parameter.short,
-                  operation: "trigger" as const,
-                  value: 0,
-                },
-              ]
-            : parameter.choices
-              ? parameter.choices.map((choice) => ({
-                  id: String(choice.value),
-                  label: choice.name,
-                  operation: "set" as const,
-                  value: choice.value,
-                }))
-              : [
-                  {
-                    id: "down",
-                    label: parameter.short + " −",
-                    operation: "decrease" as const,
-                    value: parameter.step,
-                  },
-                  {
-                    id: "up",
-                    label: parameter.short + " +",
-                    operation: "increase" as const,
-                    value: parameter.step,
-                  },
-                  {
-                    id: "dial",
-                    label: parameter.short + " / Dial",
-                    operation: "set" as const,
-                    value: parameter.default,
-                  },
-                ];
-          const actionId = `camera_${group}` as const;
-          const options = (
-            operation: CameraOptions["operation"],
-            value: number,
-          ): CameraActionOptions => ({
-            camera,
-            parameter: parameter.id,
-            operation,
-            value,
-            channel: 3,
-            display: 2,
-            ...(parameter.displays ? { overlay: value } : {}),
-          });
-          for (const variant of variants) {
-            const id =
-              "camera_" + camera + "_" + parameter.id + "_" + variant.id;
-            ids.push(id);
-            definitions[id] = {
-              type: "simple",
-              name: "CAM " + camera + " · " + variant.label,
-              style: {
-                text: "CAM " + camera + "\n" + variant.label,
-                size: "auto",
-                color: 0xffffff,
-                bgcolor: 0x253346,
-                show_topbar: false,
-              },
-              steps: [
-                {
-                  down: [
-                    {
-                      actionId,
-                      options: options(variant.operation, variant.value),
-                    },
-                  ],
-                  up: [],
-                  ...(variant.id === "dial"
-                    ? {
-                        rotate_left: [
-                          {
-                            actionId,
-                            options: options("decrease", parameter.step),
-                          },
-                        ],
-                        rotate_right: [
-                          {
-                            actionId,
-                            options: options("increase", parameter.step),
-                          },
-                        ],
-                      }
-                    : {}),
-                },
-              ],
-              feedbacks: [
-                {
-                  feedbackId: "camera_available",
-                  options: {},
-                  style: { bgcolor: 0x23513c, color: 0xffffff },
-                },
-              ],
-            };
-          }
-        }
-      }
-      groups.push({
-        id: "camera_" + group,
-        name: cameraGroups[group],
-        type: "simple",
-        presets: ids,
-      });
-    }
     for (const tab of this.snapshot.playback?.tabs ??
       [...this.knownTabs].map((id) => ({ id, sourceKind: "video" }))) {
       const ids: string[] = [],
@@ -1438,76 +873,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         presets: ids,
       });
     }
-    const headphonePresets = [
-      "headphones_mute",
-      "headphones_down",
-      "headphones_up",
-      "headphones_dial",
-    ];
-    for (const id of headphonePresets) {
-      const volumeAction = (
-        value: number,
-      ): CompanionPresetAction<ModuleSchema["actions"]> => ({
-        actionId: "headphones_volume",
-        options: { value, relative: true },
-      });
-      const muteAction: CompanionPresetAction<ModuleSchema["actions"]> = {
-        actionId: "headphones_mute",
-        options: { mode: "toggle" },
-      };
-      definitions[id] = {
-        type: "simple",
-        name: {
-          headphones_mute: "Headphones mute toggle",
-          headphones_down: "Headphones volume −1 dB",
-          headphones_up: "Headphones volume +1 dB",
-          headphones_dial: "Headphones volume dial / mute",
-        }[id]!,
-        style: {
-          text: `PHONES${id === "headphones_down" ? " −" : id === "headphones_up" ? " +" : ""}\n$(${this.label}:atem_headphones_volume) dB`,
-          size: "auto",
-          color: 0xbbbbbb,
-          bgcolor: 0x444444,
-          show_topbar: false,
-        },
-        steps: [
-          {
-            down: [
-              id === "headphones_down"
-                ? volumeAction(-1)
-                : id === "headphones_up"
-                  ? volumeAction(1)
-                  : muteAction,
-            ],
-            up: [],
-            ...(id === "headphones_dial"
-              ? {
-                  rotate_left: [volumeAction(-1)],
-                  rotate_right: [volumeAction(1)],
-                }
-              : {}),
-          },
-        ],
-        feedbacks: [
-          {
-            feedbackId: "headphones_available",
-            options: {},
-            style: { bgcolor: 0x176b34, color: 0xffffff },
-          },
-          {
-            feedbackId: "headphones_muted",
-            options: {},
-            style: { bgcolor: 0xb02727, color: 0xffffff },
-          },
-        ],
-      };
-    }
-    groups.push({
-      id: "headphones",
-      name: "ATEM Headphones",
-      type: "simple",
-      presets: headphonePresets,
-    });
     definitions.replay_start = {
       type: "simple",
       name: "Replay (app settings and default clip)",
@@ -1527,10 +892,6 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
                 path: "",
                 mode: "configured",
                 tab: this.replayTabs()[0]?.id ?? 1,
-                studioRouting: false,
-                studioBefore: "unchanged",
-                studioAfter: "unchanged",
-                replayRouting: false,
               },
             },
           ],
