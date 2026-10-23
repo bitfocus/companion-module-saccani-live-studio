@@ -525,12 +525,207 @@ test("Companion SDK lifecycle supports HTTP/WebSocket/secrets, keeps stable IDs,
     assert.equal(values.atem_headphones_available, false);
     assert.equal(values.atem_headphones_volume, "");
     assert.equal(values.atem_headphones_muted, false);
-    assert.equal(values.atem_camera_available,false);
-    assert.equal(values.camera_1_temperature,"");
-    assert.equal(values.camera_1_tint,"");
+    assert.equal(values.atem_camera_available, false);
+    assert.equal(values.camera_1_temperature, "");
+    assert.equal(values.camera_1_tint, "");
   } finally {
     await instance.destroy();
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+test("Companion chat actions, dial preview, feedbacks and presets follow the app's chat tab", async () => {
+  const values: ModuleSchema["variables"] = {};
+  let actions: CompanionActionDefinitions<ModuleSchema["actions"]> = {};
+  let feedbacks: CompanionFeedbackDefinitions<ModuleSchema["feedbacks"]> = {};
+  let presets: CompanionPresetDefinitions<ModuleSchema> = {};
+  const context: InstanceContext<ModuleSchema> = {
+    _isInstanceContext: true,
+    id: "chat-test",
+    label: "studio",
+    upgradeScripts: [],
+    sharedUdpSocketHandlers: new Map(),
+    saveConfig: () => undefined,
+    updateStatus: () => undefined,
+    oscSend: () => undefined,
+    recordAction: () => undefined,
+    subscribeActions: () => undefined,
+    unsubscribeActions: () => undefined,
+    unsubscribeFeedbacks: () => undefined,
+    checkFeedbacks: () => undefined,
+    checkAllFeedbacks: () => undefined,
+    checkFeedbacksById: () => undefined,
+    setActionDefinitions: (definitions) => {
+      actions = definitions;
+    },
+    setFeedbackDefinitions: (definitions) => {
+      feedbacks = definitions;
+    },
+    setPresetDefinitions: (_structure, definitions) => {
+      presets = definitions;
+    },
+    setVariableDefinitions: () => undefined,
+    setVariableValues: (update) => {
+      Object.assign(values, update);
+    },
+    getVariableValue: (id) => values[id],
+    sharedUdpSocketJoin: async () => {
+      throw new Error("No UDP allowed in this local module");
+    },
+    sharedUdpSocketLeave: async () => undefined,
+    sharedUdpSocketSend: async () => undefined,
+  };
+  const message = (
+    id: string,
+    author: string,
+    highlight: string | null = null,
+  ) => ({
+    id,
+    author,
+    text: `Hello from ${author}`,
+    highlight,
+    badges: [],
+  });
+  const chat = {
+    chatControl: true,
+    tabs: [
+      {
+        id: 3,
+        connected: true,
+        live: true,
+        mode: "highlight",
+        status: "Live chat",
+        onAir: null as ReturnType<typeof message> | null,
+        messages: [message("a", "Ada", "€2.00"), message("b", "Bob")],
+      },
+    ],
+  };
+  const commands: Record<string, unknown>[] = [];
+  const results = new Map<string, Record<string, unknown>>();
+  const server = createServer(async (request, response) => {
+    response.setHeader("Content-Type", "application/json");
+    if (request.url === "/api/v1/status") {
+      response.end(
+        JSON.stringify({
+          playback: { seenAt: 1, videoControl: true, tabs: [] },
+          replay: { busy: false, seenAt: 1 },
+          chat: { ...chat, seenAt: 1 },
+          operations: [],
+        }),
+      );
+      return;
+    }
+    if (request.method !== "POST") {
+      const id = request.url!.split("/").at(-1);
+      response.writeHead(id && results.has(id) ? 200 : 404);
+      response.end(JSON.stringify(results.get(id!) ?? {}));
+      return;
+    }
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const body = JSON.parse(Buffer.concat(chunks).toString());
+    const action = request.url!.split("/").at(-1);
+    commands.push({ ...body, action });
+    results.set(body.id, { id: body.id, state: "completed" });
+    const tab = chat.tabs[0]!;
+    tab.onAir =
+      action === "chat-show"
+        ? (tab.messages.find((item) => item.id === body.messageID) ?? null)
+        : null;
+    response.writeHead(202);
+    response.end(JSON.stringify({ id: body.id, state: "completed" }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const instance = new StudioInstance(context, () => new FakeAtem().asAtem());
+  const run = async (
+    actionId: "chat_toggle" | "chat_hide" | "chat_browse" | "chat_preview",
+    options: Record<string, unknown>,
+  ) => {
+    await (actions[actionId]!.callback as (...args: unknown[]) => unknown)(
+      { id: actionId, controlId: "1/1/1", actionId, options },
+      { type: "action" },
+    );
+    await wait(300);
+  };
+  const feedback = (
+    feedbackId: "chat_on_air" | "chat_preview_on_air" | "chat_ready",
+  ) =>
+    (feedbacks[feedbackId]!.callback as (...args: unknown[]) => unknown)(
+      { id: "f", controlId: "1/1/1", feedbackId, options: { tab: 3 } },
+      { type: "feedback" },
+    );
+  try {
+    await instance.init({
+      url: `http://127.0.0.1:${address.port}`,
+      replayFile: "",
+    });
+    await wait(300);
+    assert.equal(values.chat_3_preview_author, "Bob");
+    assert.equal(values.chat_3_preview_position, "2 / 2");
+    assert.equal(values.chat_3_latest_highlight_author, "Ada");
+    assert.equal(await feedback("chat_ready"), true);
+    assert.ok(presets.chat_3_dial);
+    assert.ok(presets.chat_3_latest);
+    await run("chat_browse", { tab: 3, steps: -1 });
+    assert.equal(values.chat_3_preview_author, "Ada");
+    await run("chat_preview", { tab: 3 });
+    assert.deepEqual(commands.at(-1), {
+      ...commands.at(-1),
+      action: "chat-show",
+      messageID: "a",
+    });
+    assert.equal(values.chat_3_on_air_author, "Ada");
+    assert.equal(await feedback("chat_preview_on_air"), true);
+    await run("chat_preview", { tab: 3 });
+    assert.equal(commands.at(-1)?.action, "chat-hide");
+    assert.equal(await feedback("chat_on_air"), false);
+    await run("chat_toggle", { tab: 3, pick: "latest" });
+    assert.equal(commands.at(-1)?.messageID, "b");
+    await run("chat_hide", { tab: 3 });
+    assert.equal(commands.at(-1)?.action, "chat-hide");
+    assert.equal(values.last_error, "");
+    await run("chat_toggle", { tab: 8, pick: "latest" });
+    assert.match(String(values.last_error), /tab 8/);
+  } finally {
+    await instance.destroy();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("upgrade moves saved output-tab replays to Replay tabs and leaves other actions alone", async () => {
+  const { UpgradeScripts } = await import(
+    process.env.SACCANI_MODULE_ENTRY || "../dist/main.js"
+  );
+  const action = (
+    options: Record<string, unknown>,
+    actionId = "replay_start",
+  ) => ({
+    id: randomUUID(),
+    controlId: "1/1/1",
+    actionId,
+    options: Object.fromEntries(
+      Object.entries(options).map(([key, value]) => [
+        key,
+        { value, isExpression: false },
+      ]),
+    ),
+  });
+  const actions = [
+    action({ mode: "tab", tab: 4, audio: "blackmagic", fullFrame: true }),
+    action({ mode: "configured", tab: 1 }),
+    action({ mode: "tab" }, "play"),
+  ];
+  const result = UpgradeScripts[0](
+    { currentConfig: {} },
+    { config: null, secrets: null, actions, feedbacks: [] },
+  );
+  assert.equal(result.updatedActions.length, 1);
+  assert.deepEqual(result.updatedActions[0].options, {
+    mode: { value: "source", isExpression: false },
+    tab: { value: 4, isExpression: false },
+  });
 });

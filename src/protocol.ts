@@ -4,6 +4,14 @@ import {
   type APIOperation,
 } from "./network-control.ts";
 import { randomUUID } from "node:crypto";
+import {
+  chatTab,
+  validChat,
+  type ChatMessage,
+  type ChatStatus,
+  type ChatTab,
+} from "./chat.ts";
+import type { ProgramRoute } from "./program-routing.ts";
 export type Tab = {
   id: number;
   sourceKind: string;
@@ -33,18 +41,32 @@ export type PlaybackStatus = {
   audioVolumeControl?: boolean;
   tabs: Tab[];
 };
+export type ReplayOutput = {
+  id: number;
+  active: boolean;
+  kind: string;
+  sourceKind?: string;
+  label?: string;
+  canOpen?: boolean;
+  audio?: string;
+  fullFrame?: boolean;
+};
 export type ReplayStatus = {
   seenAt: number;
   busy: boolean;
   configuredReplayControl?: boolean;
   replayStopControl?: boolean;
-  replayFullFrameControl?: boolean;
+  replaySourceControl?: boolean;
+  replayPlaybackControl?: boolean;
   replayTab?: number;
-  replayAudio?: string;
-  outputs?: { id: number; active: boolean; kind: string }[];
+  outputs?: ReplayOutput[];
   [key: string]: unknown;
 };
-export type Snapshot = { playback?: PlaybackStatus; replay?: ReplayStatus };
+export type Snapshot = {
+  playback?: PlaybackStatus;
+  replay?: ReplayStatus;
+  chat?: ChatStatus;
+};
 export type Transport =
   | "play"
   | "pause"
@@ -153,9 +175,17 @@ export class StudioClient {
   }
   async snapshot(): Promise<Snapshot> {
     const value = await this.network.snapshot();
+    const playback = validPlayback(value.playback) ? value.playback : undefined;
+    // Chat freshness follows the playback snapshot, stamped with local receipt time.
+    const raw = (value as { chat?: unknown }).chat;
+    const chat =
+      playback && raw && typeof raw === "object"
+        ? { ...raw, seenAt: playback.seenAt }
+        : undefined;
     return {
-      playback: validPlayback(value.playback) ? value.playback : undefined,
+      playback,
       replay: validReplay(value.replay) ? value.replay : undefined,
+      chat: validChat(chat) ? chat : undefined,
     };
   }
   private async tab(
@@ -311,13 +341,42 @@ export class StudioClient {
       await this.command(tab, "set-volume", { volume });
     });
   }
+  /** Chooses the chat command from fresh app state, so a press never acts on a deleted message. */
+  chat(
+    id: number,
+    choose: (
+      tab: ChatTab,
+    ) =>
+      | { action: "chat-hide" }
+      | { action: "chat-show"; message: ChatMessage },
+  ): Promise<void> {
+    return this.serial(async () => {
+      const { chat } = await this.snapshot();
+      const tab = chatTab(chat, id);
+      const command = choose(tab);
+      if (command.action === "chat-show") chatTab(chat, id, true);
+      const controller = new AbortController();
+      this.pending.add(controller);
+      try {
+        await this.network.command(
+          id,
+          command.action,
+          command.action === "chat-show"
+            ? { messageID: command.message.id }
+            : {},
+          controller.signal,
+        );
+      } finally {
+        this.pending.delete(controller);
+      }
+    });
+  }
   async startReplay(
     path: string,
-    mode: "configured" | "tab",
+    mode: "configured" | "source",
     tabID: number,
-    audio: "mac" | "blackmagic",
-    fullFrame: boolean,
     onError: (error: Error) => void,
+    route?: ProgramRoute,
   ): Promise<void> {
     if (this.closed) throw new Error("Connection closed.");
     if (this.replayOperation)
@@ -338,12 +397,9 @@ export class StudioClient {
         await cancel?.();
       },
     };
+    let prepared = false;
     try {
-      if (
-        !["configured", "tab"].includes(mode) ||
-        !["mac", "blackmagic"].includes(audio) ||
-        typeof fullFrame !== "boolean"
-      )
+      if (!["configured", "source"].includes(mode))
         throw new Error("Invalid replay settings.");
       if (!path.startsWith("/") || !path.toLowerCase().endsWith(".mp4"))
         throw new Error(
@@ -354,54 +410,95 @@ export class StudioClient {
         throw new Error(
           "Replay is offline or busy. Open Saccani Live Studio and check the tab with a Replay source.",
         );
-      const destination = mode === "configured" ? replay.replayTab : tabID;
-      const destinationAudio =
-        mode === "configured" ? replay.replayAudio : audio;
-      if (mode === "configured" && replay.configuredReplayControl !== true)
-        throw new Error("Update the app to use configured Replay settings.");
       if (
+        replay.replaySourceControl !== true ||
         replay.replayStopControl !== true ||
-        (mode === "tab" && fullFrame && replay.replayFullFrameControl !== true)
-      )
-        throw new Error("Update the app to control replay.");
-      if (
-        !Number.isSafeInteger(destination) ||
-        Number(destination) < 1 ||
-        !replay.outputs?.some(
-          (output) => output.id === destination && output.active,
-        )
+        replay.replayPlaybackControl !== true ||
+        (mode === "configured" && replay.configuredReplayControl !== true)
       )
         throw new Error(
-          "Open the selected video output in the app before starting replay.",
+          "Update Saccani Live Studio to 0.22.1 or later for Replay through a Replay tab.",
         );
-      if (
-        !["mac", "blackmagic"].includes(String(destinationAudio)) ||
-        (destinationAudio === "blackmagic" &&
-          !replay.outputs?.some(
-            (output) =>
-              output.id === destination && output.kind === "blackmagic",
-          ))
-      )
+      const destination = mode === "configured" ? replay.replayTab : tabID;
+      const output = replay.outputs?.find(
+        (output) => output.id === destination && output.sourceKind === "replay",
+      );
+      if (!Number.isSafeInteger(destination) || !output)
         throw new Error(
-          "Blackmagic replay audio requires a Blackmagic output.",
+          mode === "configured"
+            ? "Choose Replay as the source of a tab in the app."
+            : "Choose a tab with Replay as its source.",
+        );
+      const tab = destination!;
+      if (!output.active && output.canOpen !== true)
+        throw new Error(
+          `Configure an available Video Output in Replay tab ${tab} of the app.`,
+        );
+      if (!["mac", "blackmagic"].includes(output.audio ?? ""))
+        throw new Error(`Check the audio destination in Replay tab ${tab}.`);
+      if (output.audio === "blackmagic" && output.kind !== "blackmagic")
+        throw new Error(
+          `Replay tab ${tab} needs a Blackmagic output for Blackmagic audio.`,
         );
       const network = this.network,
         id = randomUUID().toUpperCase();
+      controller.signal.throwIfAborted();
+      await route?.prepare();
+      prepared = true;
+      controller.signal.throwIfAborted();
+      const returnRoutingID = route?.deferReturn ? randomUUID() : undefined;
       let submission: Promise<APIOperation> | undefined;
       let cancelPromise: Promise<void> | undefined;
+      let sourceID: string | undefined,
+        routed = false,
+        finished = false;
+      let after: Promise<void> | undefined,
+        acknowledged: Promise<void> | undefined;
+      const applyAfter = () =>
+        (after ??= Promise.resolve().then(() => route?.after()));
+      // The app holds the replay output until the Program/SRC OUT return is confirmed.
+      const acknowledge = () =>
+        (acknowledged ??=
+          returnRoutingID && sourceID
+            ? network
+                .command(tab, "complete-return-routing", {
+                  sourceID,
+                  returnRoutingID,
+                })
+                .then(() => undefined)
+            : Promise.resolve());
+      const replayTab = async () =>
+        (
+          (await network.snapshot(true)).playback?.tabs as Tab[] | undefined
+        )?.find((item) => item.id === tab);
       cancel = () =>
         (cancelPromise ??= (async () => {
           await submission?.catch(() => undefined);
-          await network.stopReplay(id);
+          try {
+            if (returnRoutingID && !sourceID) {
+              const selected = await replayTab();
+              if (
+                selected?.returnRoutingID?.toUpperCase() ===
+                returnRoutingID.toUpperCase()
+              )
+                sourceID = selected.sourceID;
+            }
+            if (routed) await applyAfter();
+          } finally {
+            try {
+              await acknowledge();
+            } finally {
+              await network.stopReplay(id);
+            }
+          }
         })());
-      controller.signal.throwIfAborted();
       submission = network.submit(
         "/api/v1/replay/start",
         {
           path,
-          mode: mode === "configured" ? "configured" : `tab${tabID}`,
-          audio,
-          fullFrame,
+          mode: mode === "configured" ? "configured" : `source${tab}`,
+          audio: "mac",
+          ...(returnRoutingID ? { returnRoutingID } : {}),
         },
         id,
       );
@@ -412,12 +509,56 @@ export class StudioClient {
         throw error;
       }
       void (async () => {
+        let monitor: Promise<void> | undefined;
         try {
-          await network.wait(id, 45000, controller.signal);
+          const completion = network.wait(id, 45000, controller.signal);
+          completion.catch(() => undefined);
+          if (route)
+            monitor = (async () => {
+              while (!finished && !controller.signal.aborted) {
+                const selected = await replayTab();
+                if (
+                  !routed &&
+                  selected?.playing &&
+                  !selected.loading &&
+                  selected.replay
+                ) {
+                  sourceID = selected.sourceID;
+                  routed = true;
+                  await route.before();
+                }
+                if (
+                  returnRoutingID &&
+                  selected?.returnRoutingPending &&
+                  selected.returnRoutingID?.toUpperCase() ===
+                    returnRoutingID.toUpperCase()
+                ) {
+                  sourceID = selected.sourceID;
+                  if (routed) await applyAfter();
+                  await acknowledge();
+                }
+                await new Promise((resolve) => setTimeout(resolve, 100));
+              }
+            })();
+          await (monitor ? Promise.race([completion, monitor]) : completion);
+          finished = true;
+          await monitor;
+          if (routed) await applyAfter();
         } catch (error) {
+          finished = true;
+          await monitor?.catch(() => undefined);
+          let failure =
+            error instanceof Error ? error : new Error(String(error));
+          if (!controller.signal.aborted && routed && !after) {
+            routed = false;
+            await route!.rollback().catch((rollback: unknown) => {
+              failure = new Error(
+                `${failure.message}; ATEM restoration after error: ${rollback instanceof Error ? rollback.message : String(rollback)}`,
+              );
+            });
+          }
           await cancel!().catch(() => undefined);
-          if (!controller.signal.aborted)
-            onError(error instanceof Error ? error : new Error(String(error)));
+          if (!controller.signal.aborted) onError(failure);
         } finally {
           if (controller.signal.aborted) await cancel!().catch(() => undefined);
           this.pending.delete(controller);
@@ -428,6 +569,7 @@ export class StudioClient {
       })();
       return;
     } catch (error) {
+      if (prepared) await route?.rollback().catch(() => undefined);
       this.pending.delete(controller);
       if (this.replayOperation?.controller === controller)
         this.replayOperation = undefined;

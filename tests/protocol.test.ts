@@ -9,6 +9,13 @@ import {
   type PlaybackStatus,
   type ReplayStatus,
 } from "../src/protocol.ts";
+import {
+  ChatBrowser,
+  validChat,
+  type ChatMessage,
+  type ChatStatus,
+} from "../src/chat.ts";
+import type { ProgramRoute } from "../src/program-routing.ts";
 
 const wait = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -20,7 +27,15 @@ type Request = {
   volume?: number;
   offsetSeconds?: number;
   mode?: string;
+  messageID?: string;
+  returnRoutingID?: string;
 };
+const message = (
+  id: string,
+  author: string,
+  text: string,
+  highlight: string | null = null,
+): ChatMessage => ({ id, author, text, highlight, badges: [] });
 
 async function fixture() {
   const videoID = randomUUID(),
@@ -70,10 +85,37 @@ async function fixture() {
     busy: false,
     configuredReplayControl: true,
     replayStopControl: true,
-    replayFullFrameControl: true,
+    replaySourceControl: true,
+    replayPlaybackControl: true,
     replayTab: 4,
-    replayAudio: "mac",
-    outputs: [{ id: 4, active: true, kind: "display" }],
+    outputs: [
+      {
+        id: 4,
+        active: true,
+        kind: "display",
+        sourceKind: "replay",
+        audio: "mac",
+        canOpen: true,
+      },
+    ],
+  };
+  const chat: Omit<ChatStatus, "seenAt"> = {
+    chatControl: true,
+    tabs: [
+      {
+        id: 9,
+        connected: true,
+        live: true,
+        mode: "highlight",
+        status: "Live",
+        onAir: null,
+        messages: [
+          message("m1", "Ada", "First", "€5.00"),
+          message("m2", "Bob", "Second"),
+          message("m3", "Cy", "Third"),
+        ],
+      },
+    ],
   };
   const commands: Request[] = [],
     replays: Request[] = [],
@@ -101,6 +143,7 @@ async function fixture() {
         JSON.stringify({
           playback: status,
           replay,
+          chat,
           operations: [...operations.values()],
         }),
       );
@@ -129,11 +172,19 @@ async function fixture() {
         } as Request;
         commands.push(command);
         await beforeAck?.(command);
-        const tab = status.tabs.find((item) => item.id === command.tab)!;
-        if (command.action === "set-volume") tab.volume = command.volume;
+        const tab = status.tabs.find((item) => item.id === command.tab);
+        const chatTab = chat.tabs.find((item) => item.id === command.tab);
+        if (command.action === "chat-show")
+          chatTab!.onAir =
+            chatTab!.messages.find((item) => item.id === command.messageID) ??
+            null;
+        else if (command.action === "chat-hide") chatTab!.onAir = null;
+        else if (command.action === "complete-return-routing")
+          tab!.returnRoutingPending = false;
+        else if (command.action === "set-volume") tab!.volume = command.volume;
         else if (command.action === "seek")
-          tab.position = tab.position! + command.offsetSeconds!;
-        else tab.playing = ["play", "restart"].includes(command.action);
+          tab!.position = tab!.position! + command.offsetSeconds!;
+        else tab!.playing = ["play", "restart"].includes(command.action);
       } else state = "running";
       const result = { id: body.id, state };
       operations.set(body.id, result);
@@ -159,6 +210,8 @@ async function fixture() {
     commands,
     replays,
     cancellations,
+    operations,
+    chat,
     client,
     videoID,
     audioID,
@@ -320,29 +373,18 @@ test("replay returns after submission, prevents duplicate starts, and cancels on
     errors: Error[] = [];
   try {
     const clip = "/remote-only/clip.mp4";
-    const first = f.client.startReplay(
-      clip,
-      "configured",
-      4,
-      "mac",
-      false,
-      (error) => errors.push(error),
+    const first = f.client.startReplay(clip, "configured", 4, (error) =>
+      errors.push(error),
     );
     await assert.rejects(
-      f.client.startReplay(
-        clip,
-        "configured",
-        4,
-        "mac",
-        false,
-        () => undefined,
-      ),
+      f.client.startReplay(clip, "configured", 4, () => undefined),
       /pending/,
     );
     await first;
     await wait(100);
     assert.equal(f.replays.length, 1);
     assert.equal(f.replays[0]!.mode, "configured");
+    assert.equal(f.replays[0]!.returnRoutingID, undefined);
     assert.equal(f.replay.busy, true);
     await f.client.stopReplay();
     await wait(100);
@@ -353,14 +395,7 @@ test("replay returns after submission, prevents duplicate starts, and cancels on
     f.replay.busy = true;
     await f.publish();
     await assert.rejects(
-      f.client.startReplay(
-        clip,
-        "configured",
-        4,
-        "mac",
-        false,
-        () => undefined,
-      ),
+      f.client.startReplay(clip, "configured", 4, () => undefined),
       /busy/,
     );
     assert.equal(f.replays.length, 1);
@@ -369,37 +404,43 @@ test("replay returns after submission, prevents duplicate starts, and cancels on
   }
 });
 
-test("replay validates output routing and closing cancels playback without stopping another client", async () => {
+test("replay targets an exact Replay tab, validates its output and closing cancels only its own playback", async () => {
   const f = await fixture();
   try {
     const clip = "/remote-only/clip.mp4";
+    const output = f.replay.outputs![0]!;
+    output.audio = "blackmagic";
     await assert.rejects(
-      f.client.startReplay(
-        clip,
-        "tab",
-        4,
-        "blackmagic",
-        false,
-        () => undefined,
-      ),
+      f.client.startReplay(clip, "source", 4, () => undefined),
       /Blackmagic/,
     );
-    f.replay.outputs![0]!.active = false;
-    await f.publish();
+    output.audio = "mac";
+    output.active = false;
+    output.canOpen = false;
     await assert.rejects(
-      f.client.startReplay(
-        clip,
-        "configured",
-        4,
-        "mac",
-        false,
-        () => undefined,
-      ),
-      /Open the selected/,
+      f.client.startReplay(clip, "source", 4, () => undefined),
+      /Video Output in Replay tab 4/,
     );
-    f.replay.outputs![0]!.active = true;
-    await f.publish();
-    await f.client.startReplay(clip, "tab", 4, "mac", true, () => undefined);
+    output.canOpen = true;
+    output.sourceKind = "video";
+    await assert.rejects(
+      f.client.startReplay(clip, "source", 4, () => undefined),
+      /Replay as its source/,
+    );
+    output.sourceKind = "replay";
+    f.replay.replaySourceControl = false;
+    await assert.rejects(
+      f.client.startReplay(clip, "source", 4, () => undefined),
+      /0\.22\.1/,
+    );
+    f.replay.replaySourceControl = true;
+    await assert.rejects(
+      f.client.startReplay(clip, "tab" as "source", 4, () => undefined),
+      /Invalid replay settings/,
+    );
+    assert.equal(f.replays.length, 0);
+    await f.client.startReplay(clip, "source", 4, () => undefined);
+    assert.equal(f.replays[0]!.mode, "source4");
     await wait(75);
     await f.client.close();
     await wait(100);
@@ -409,6 +450,191 @@ test("replay validates output routing and closing cancels playback without stopp
   } finally {
     await f.close();
   }
+});
+
+function recordingRoute(failBefore = false) {
+  const calls: string[] = [];
+  const route: ProgramRoute = {
+    deferReturn: true,
+    prepare: async () => {
+      calls.push("prepare");
+    },
+    before: async () => {
+      calls.push("before");
+      if (failBefore) throw new Error("ATEM refused the input");
+    },
+    after: async () => {
+      calls.push("after");
+    },
+    rollback: async () => {
+      calls.push("rollback");
+    },
+  };
+  return { calls, route };
+}
+
+test("routed replay switches after confirmed start and confirms the return before the app restores output", async () => {
+  const f = await fixture(),
+    errors: Error[] = [];
+  const { calls, route } = recordingRoute();
+  try {
+    const tab = f.status.tabs[0]!;
+    await f.client.startReplay(
+      "/remote-only/clip.mp4",
+      "source",
+      4,
+      (error) => errors.push(error),
+      route,
+    );
+    const request = f.replays[0]!;
+    assert.match(String(request.returnRoutingID), /^[0-9a-f-]{36}$/i);
+    assert.deepEqual(calls, ["prepare"]);
+    // Loading is not playback: Program must not change yet.
+    Object.assign(tab, { replay: true, loading: true, playing: false });
+    await f.publish();
+    await wait(250);
+    assert.deepEqual(calls, ["prepare"]);
+    Object.assign(tab, { loading: false, playing: true });
+    await f.publish();
+    await wait(250);
+    assert.deepEqual(calls, ["prepare", "before"]);
+    Object.assign(tab, {
+      playing: false,
+      returnRoutingPending: true,
+      returnRoutingID: request.returnRoutingID,
+    });
+    await f.publish();
+    await wait(250);
+    assert.deepEqual(calls, ["prepare", "before", "after"]);
+    const ack = f.commands.find(
+      (command) => command.action === "complete-return-routing",
+    );
+    assert.equal(ack?.tab, 4);
+    assert.equal(ack?.sourceID, f.videoID);
+    assert.equal(ack?.returnRoutingID, request.returnRoutingID);
+    f.operations.get(request.id)!.state = "completed";
+    Object.assign(tab, { replay: false });
+    await f.publish();
+    await wait(250);
+    assert.deepEqual(calls, ["prepare", "before", "after"]);
+    assert.deepEqual(errors, []);
+    assert.equal(f.cancellations.length, 0);
+  } finally {
+    await f.close();
+  }
+});
+
+test("routed replay rolls back the ATEM and stops when switching fails", async () => {
+  const f = await fixture(),
+    errors: Error[] = [];
+  const { calls, route } = recordingRoute(true);
+  try {
+    await f.client.startReplay(
+      "/remote-only/clip.mp4",
+      "source",
+      4,
+      (error) => errors.push(error),
+      route,
+    );
+    Object.assign(f.status.tabs[0]!, { replay: true, playing: true });
+    await f.publish();
+    await wait(300);
+    assert.deepEqual(calls, ["prepare", "before", "rollback"]);
+    assert.match(errors[0]?.message ?? "", /ATEM refused/);
+    assert.deepEqual(f.cancellations, [f.replays[0]!.id]);
+  } finally {
+    await f.close();
+  }
+});
+
+test("chat state is validated and commands act on fresh messages", async () => {
+  const f = await fixture();
+  try {
+    const now = Date.now() / 1000;
+    assert.equal(validChat({ ...f.chat, seenAt: now }, now), true);
+    assert.equal(validChat({ ...f.chat, seenAt: now - 10 }, now), false);
+    assert.equal(
+      validChat({ ...f.chat, seenAt: now, chatControl: false }, now),
+      false,
+    );
+    assert.equal(
+      validChat(
+        { ...f.chat, seenAt: now, tabs: [f.chat.tabs[0], f.chat.tabs[0]] },
+        now,
+      ),
+      false,
+    );
+    assert.equal((await f.client.snapshot()).chat?.tabs[0]?.messages.length, 3);
+    const tab = f.chat.tabs[0]!;
+    const { keyCommand } = await import("../src/chat.ts");
+    await f.client.chat(9, (item) => keyCommand(item, "latest"));
+    assert.equal(tab.onAir?.id, "m3");
+    await f.publish();
+    await f.client.chat(9, (item) => keyCommand(item, "latest"));
+    assert.equal(tab.onAir, null);
+    await f.publish();
+    await f.client.chat(9, (item) => keyCommand(item, "highlight"));
+    assert.equal(tab.onAir?.id, "m1");
+    assert.deepEqual(
+      f.commands.map((command) => [command.action, command.messageID]),
+      [
+        ["chat-show", "m3"],
+        ["chat-hide", undefined],
+        ["chat-show", "m1"],
+      ],
+    );
+    tab.onAir = null;
+    tab.mode = "feed";
+    await f.publish();
+    await assert.rejects(
+      f.client.chat(9, (item) => keyCommand(item)),
+      /feed/,
+    );
+    await assert.rejects(
+      f.client.chat(3, (item) => keyCommand(item)),
+      /Choose Chat as the source in tab 3/,
+    );
+    tab.messages = [];
+    tab.mode = "highlight";
+    await f.publish();
+    await assert.rejects(
+      f.client.chat(9, (item) => keyCommand(item)),
+      /No chat messages yet/,
+    );
+  } finally {
+    await f.close();
+  }
+});
+
+test("chat browsing follows the newest message until moved and survives deletions", () => {
+  const browser = new ChatBrowser();
+  const tab = {
+    id: 9,
+    connected: true,
+    live: true,
+    mode: "highlight",
+    status: "",
+    onAir: null as ChatMessage | null,
+    messages: [message("a", "A", "1"), message("b", "B", "2")],
+  };
+  assert.equal(browser.position(tab).message?.id, "b");
+  assert.equal(browser.position(tab).following, true);
+  browser.move(tab, -5);
+  assert.equal(browser.position(tab).message?.id, "a");
+  tab.messages.push(message("c", "C", "3"));
+  assert.equal(browser.position(tab).message?.id, "a");
+  assert.deepEqual(browser.press(tab), {
+    action: "chat-show",
+    message: tab.messages[0],
+  });
+  tab.onAir = tab.messages[0]!;
+  assert.deepEqual(browser.press(tab), { action: "chat-hide" });
+  tab.messages.shift();
+  assert.equal(browser.position(tab).message?.id, "c");
+  browser.move(tab, -1);
+  browser.move(tab, 1);
+  assert.equal(browser.position(tab).following, true);
+  assert.throws(() => browser.move(tab, 1.5), /Invalid/);
 });
 
 test("display counters are clip-relative, clamp invalid values, and support fractional frame rates", () => {

@@ -31,12 +31,14 @@ export class FakeAtem extends EventEmitter {
         longName: "Camera",
         internalPortType: Enums.InternalPortType.External,
         meAvailability: Enums.MeAvailability.Me1,
+        sourceAvailability: Enums.SourceAvailability.Auxiliary,
       },
       5: {
         inputId: 5,
         longName: "Studio HDMI",
         internalPortType: Enums.InternalPortType.External,
         meAvailability: Enums.MeAvailability.Me1,
+        sourceAvailability: Enums.SourceAvailability.Auxiliary,
       },
       9: {
         inputId: 9,
@@ -44,10 +46,11 @@ export class FakeAtem extends EventEmitter {
         meAvailability: Enums.MeAvailability.Me2,
       },
     },
-    video: { mixEffects: [{ programInput: 1 }] },
+    video: { mixEffects: [{ programInput: 1 }], auxilliaries: [10010] },
   } as unknown as NonNullable<Atem["state"]>;
   status = AtemConnectionStatus.CONNECTED;
   changes: number[] = [];
+  auxChanges: [number, number][] = [];
   headphoneChanges: Record<string, number | boolean>[] = [];
   cameraCommands: Commands.CameraControlCommand[] = [];
   async sendCommand(command: Commands.CameraControlCommand) {
@@ -67,6 +70,12 @@ export class FakeAtem extends EventEmitter {
     if (this.failChanges) throw new Error("ATEM offline");
     this.changes.push(input);
     this.state.video.mixEffects[0]!.programInput = input;
+    this.emit("stateChanged", this.state, []);
+  }
+  async setAuxSource(source: number, bus: number) {
+    if (this.failChanges) throw new Error("ATEM offline");
+    this.auxChanges.push([source, bus]);
+    this.state.video.auxilliaries[bus] = source;
     this.emit("stateChanged", this.state, []);
   }
   async setFairlightAudioMixerMonitorProps(

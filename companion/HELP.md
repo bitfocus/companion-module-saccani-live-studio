@@ -1,6 +1,6 @@
 # Saccani Live Studio
 
-Controls the separate Saccani Live Studio macOS app. Requires Companion **4.3+**. HTTP/WebSocket supports Companion on macOS, Windows, Linux or Raspberry Pi, with Saccani Live Studio **0.21.0+** on the app Mac.
+Controls the separate Saccani Live Studio macOS app. Requires Companion **4.3+**. HTTP/WebSocket supports Companion on macOS, Windows, Linux or Raspberry Pi, with Saccani Live Studio **0.21.0+** on the app Mac (Replay tabs **0.22.1+**, live chat **0.23.0+**).
 
 ## Connect
 
@@ -18,9 +18,17 @@ Load media and configure/open outputs in Saccani Live Studio. These commands do 
 
 ## Replay
 
-Provide a full MP4 path in the connection's default replay file or in the action. **An output must already be open.** Choose Replay as a tab's source, select that tab and open its output. Replay uses that source's selected settings by default and plays its final 15 seconds. Explicit tab mode can override audio and full-screen settings.
+Provide a full MP4 path on the app Mac in the connection's default replay file or in the action. Choose **Replay** as a tab's source in the app and set its Video Output, audio, framing and overlay there. The action uses the last selected Replay tab in the app, or the Replay tab you choose, and plays the clip's final 15 seconds. The app opens the configured output if needed and restores the preceding tab at Stop, completion or a failed start.
 
-Stop Replay only cancels the replay started by this connection. For replay started elsewhere, use **Stop Replay** in the app or its originating controller. This version does not select the latest recording, stop an ATEM recording, copy recordings or discard takes.
+Optionally enable **Change ATEM input before / after playback** and **Change SRC OUT during playback**. Both switch only after the app confirms the replay is playing. At the end the ATEM returns first; the app restores its output only after the module confirms. A failed switch rolls the ATEM back and stops the replay.
+
+Stop Replay only cancels the replay started by this connection. For replay started elsewhere, use **Stop Replay** in the app or its originating controller. Selecting the latest ATEM recording, stopping an ATEM recording, copying recordings and discarding takes are not available in Companion.
+
+## Live chat
+
+Choose **Chat** as a tab's source, connect it to a YouTube broadcast and keep it in **Highlight** mode. **Chat: put a message on air / hide** shows the latest message or the latest Super Chat/membership, and hides it on the next press. **Chat: hide message on air** always hides. On a dial, **Chat: browse messages** moves a preview through the latest 50 messages (left = older) and **Chat: put previewed message on air / hide** sends it on air or hides it. At the newest message the preview follows new messages.
+
+Each chat tab has ready-made presets. Variables `chat_<tab>_…` show status, the message on air and the preview (author, text, Super Chat amount, position). Look, position and **Hide after** are set in the app; in Feed mode only hiding works.
 
 ## Status
 
@@ -44,7 +52,7 @@ The **ATEM Headphones** preset group contains mute, volume −1/+1 dB and a volu
 
 ## Optional ATEM Program routing
 
-Set **ATEM IP address** in this connection, then enable **Change ATEM input before / after playback** in a Play, Restart or toggle action. Choose named Program sources before and after playback, **Do not change**, or **Restore Previous Input** in the after field.
+Set **ATEM IP address** in this connection, then enable **Change ATEM input before / after playback** in a Play, Restart, toggle or replay action. Choose named Program sources before and after playback, **Do not change**, or **Restore Previous Input** in the after field.
 
 The module saves M/E 1’s actual Program input immediately before sending Play. It switches to the starting input only after the app confirms playback has started and its output handoff is complete. **Restore Previous Input** returns to that saved source at natural completion or Stop, including Stop sent from a different button or the app. Pause, jog, Resume and Restart keep the saved return input; a looping clip returns only on Stop. For video, Stop and natural completion hold the current/last frame until the final Program selection is confirmed, then the app resets the clip and restores the previous output. Stop in the app follows the same handshake. Requires Saccani Live Studio 0.21.3 or newer. Both video and audio tabs are supported. Use a routed action to start playback; an external start has no saved return route.
 

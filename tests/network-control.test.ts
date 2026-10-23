@@ -89,23 +89,11 @@ test("Companion uses the remote API for transport, jog and replay paths without 
     /source changed/,
   );
   const errors: Error[] = [];
-  await client.startReplay(
-    "/remote-only/clip.mp4",
-    "configured",
-    7,
-    "mac",
-    false,
-    (error) => errors.push(error),
+  await client.startReplay("/remote-only/clip.mp4", "configured", 7, (error) =>
+    errors.push(error),
   );
   await assert.rejects(
-    client.startReplay(
-      "/remote-only/clip.mp4",
-      "configured",
-      7,
-      "mac",
-      false,
-      () => {},
-    ),
+    client.startReplay("/remote-only/clip.mp4", "configured", 7, () => {}),
     /already.*pending/,
   );
   await client.stopReplay();
@@ -174,8 +162,6 @@ test("closing Companion during replay admission waits for Start before cancellin
     "/remote-only/clip.mp4",
     "configured",
     7,
-    "mac",
-    false,
     (error) => errors.push(error),
   );
   for (let i = 0; i < 100 && !fixture.commands.length; i++)

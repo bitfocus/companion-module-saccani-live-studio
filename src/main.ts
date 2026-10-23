@@ -20,8 +20,16 @@ import { Atem } from "atem-connection";
 import {
   ATEMProgramConnection,
   RESTORE_PREVIOUS_INPUT,
+  type ReplayOutputOptions,
   type RoutingOptions,
 } from "./program-routing.js";
+import {
+  ChatBrowser,
+  keyCommand,
+  pickMessage,
+  type ChatMessage,
+  type ChatPick,
+} from "./chat.js";
 import { PlaybackRouting } from "./playback-routing.js";
 import {
   cameraGroups,
@@ -61,13 +69,16 @@ export type ModuleSchema = {
     replay_start: {
       options: {
         path: string;
-        mode: "configured" | "tab";
+        mode: "configured" | "source";
         tab: number;
-        audio: "mac" | "blackmagic";
-        fullFrame: boolean;
-      };
+      } & RoutingOptions &
+        ReplayOutputOptions;
     };
     replay_stop: { options: Record<string, never> };
+    chat_toggle: { options: { tab: number; pick: ChatPick } };
+    chat_hide: { options: { tab: number } };
+    chat_browse: { options: { tab: number; steps: number } };
+    chat_preview: { options: { tab: number } };
   } & { [K in `camera_${CameraGroup}`]: { options: CameraActionOptions } };
   feedbacks: {
     headphones_muted: { type: "boolean"; options: Record<string, never> };
@@ -76,15 +87,36 @@ export type ModuleSchema = {
     offline: { type: "boolean"; options: Record<string, never> };
     replay_busy: { type: "boolean"; options: Record<string, never> };
   } & {
-    [K in "playing" | "ready" | "busy" | "output"]: {
+    [K in
+      | "playing"
+      | "ready"
+      | "busy"
+      | "output"
+      | "chat_on_air"
+      | "chat_preview_on_air"
+      | "chat_ready"]: {
       type: "boolean";
       options: { tab: number };
     };
   };
   variables: Record<string, string | number | boolean>;
 };
-export const UpgradeScripts: CompanionStaticUpgradeScript<Config, Secrets>[] =
-  [];
+export const UpgradeScripts: CompanionStaticUpgradeScript<Config, Secrets>[] = [
+  // 0.5.0: replay targets an exact Replay source tab, whose own settings replace audio and framing.
+  (_context, props) => ({
+    updatedConfig: null,
+    updatedActions: props.actions.flatMap((action) => {
+      if (action.actionId !== "replay_start") return [];
+      const mode = action.options.mode;
+      if (mode?.isExpression || mode?.value !== "tab") return [];
+      action.options.mode = { value: "source", isExpression: false };
+      delete action.options.audio;
+      delete action.options.fullFrame;
+      return [action];
+    }),
+    updatedFeedbacks: [],
+  }),
+];
 const transportNames: Record<TransportActions, string> = {
   play: "Play / Resume",
   pause: "Pause",
@@ -108,6 +140,32 @@ const variableNames: Record<string, string> = {
   progress: "Progress percent",
   volume: "Audio volume percent",
 };
+const chatVariableNames: Record<string, string> = {
+  status: "Status",
+  mode: "Mode (highlight / feed)",
+  live: "Broadcast live",
+  message_count: "Recent messages",
+  on_air: "Message on air",
+  on_air_author: "On air: author",
+  on_air_text: "On air: text",
+  on_air_highlight: "On air: Super Chat amount or membership",
+  preview_author: "Preview: author",
+  preview_text: "Preview: text",
+  preview_highlight: "Preview: Super Chat amount or membership",
+  preview_position: "Preview: position (n / total)",
+  preview_on_air: "Preview: message is on air",
+  latest_highlight_author: "Latest Super Chat or membership: author",
+};
+function messageValues(
+  prefix: string,
+  message: ChatMessage | null | undefined,
+) {
+  return {
+    [`${prefix}_author`]: message?.author ?? "",
+    [`${prefix}_text`]: message?.text ?? "",
+    [`${prefix}_highlight`]: message?.highlight ?? "",
+  };
+}
 
 export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
   config: Config = { url: "http://127.0.0.1:8765", replayFile: "" };
@@ -119,6 +177,8 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
   private tabSignature = "";
   private knownTabs = new Set([1, 2, 3]);
   private knownCameras = new Set([1]);
+  private knownChatTabs = new Set<number>();
+  private chatBrowser = new ChatBrowser();
   private lastError = "";
   private program: ATEMProgramConnection;
   private playbackRouting: PlaybackRouting;
@@ -136,6 +196,8 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
           this.program.headphones !== undefined,
           this.program.cameras,
           this.program.cameraAvailable,
+          this.program.auxOutputs,
+          this.program.auxSources,
         ]);
         if (signature !== this.atemSignature) {
           this.atemSignature = signature;
@@ -225,6 +287,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
     this.snapshot = {};
     this.lastError = "";
     this.tabSignature = "";
+    this.chatBrowser.clear();
     this.definitions();
     try {
       await this.program.configure(this.config.atemHost || "");
@@ -260,15 +323,19 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         if (generation === this.generation) this.reportError(error);
       });
       if (generation !== this.generation) return;
-      const signature = JSON.stringify(
+      const signature = JSON.stringify([
         snapshot.playback?.tabs.map((tab) => [
           tab.id,
           tab.sourceKind,
           tab.filename,
         ]) ?? [],
-      );
+        this.replayTabs(snapshot).map((output) => [output.id, output.label]),
+        snapshot.chat?.tabs.map((tab) => tab.id) ?? [],
+      ]);
       for (const tab of snapshot.playback?.tabs ?? [])
         this.knownTabs.add(tab.id);
+      for (const tab of snapshot.chat?.tabs ?? [])
+        this.knownChatTabs.add(tab.id);
       if (signature !== this.tabSignature) {
         this.tabSignature = signature;
         this.definitions();
@@ -319,6 +386,48 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       choices,
       default: choices[0]!.id,
     };
+  }
+  private replayTabs(snapshot = this.snapshot) {
+    return (
+      snapshot.replay?.outputs?.filter(
+        (output) => output.sourceKind === "replay",
+      ) ?? []
+    );
+  }
+  private replayTabField(): CompanionInputFieldDropdown<"tab"> {
+    const tabs = this.replayTabs();
+    const choices = tabs.length
+      ? tabs.map((output) => ({
+          id: output.id,
+          label: `Tab ${output.id}${output.label ? " · " + output.label : ""}`,
+        }))
+      : [{ id: 1, label: "Tab 1 · choose Replay as a tab source in the app" }];
+    return {
+      id: "tab",
+      type: "dropdown",
+      label: "Replay tab",
+      choices,
+      default: choices[0]!.id,
+      isVisibleExpression: '$(options:mode) == "source"',
+    };
+  }
+  private chatTabField(): CompanionInputFieldDropdown<"tab"> {
+    const ids = this.snapshot.chat?.tabs.map((tab) => tab.id) ?? [
+      ...this.knownChatTabs,
+    ];
+    const choices = ids.length
+      ? ids.sort((a, b) => a - b).map((id) => ({ id, label: `Chat tab ${id}` }))
+      : [{ id: 1, label: "Tab 1 · choose Chat as a tab source in the app" }];
+    return {
+      id: "tab",
+      type: "dropdown",
+      label: "Chat tab",
+      choices,
+      default: choices[0]!.id,
+    };
+  }
+  private chatTab(id: number) {
+    return this.snapshot.chat?.tabs.find((tab) => tab.id === id);
   }
   private async execute(
     work: (client: StudioClient) => Promise<unknown>,
@@ -509,6 +618,43 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
           }),
       };
     }
+    const routingFields = [
+      {
+        id: "studioRouting" as const,
+        type: "checkbox" as const,
+        label: "Change ATEM input before / after playback",
+        default: false,
+        disableAutoExpression: true,
+      },
+      {
+        id: "studioBefore" as const,
+        type: "dropdown" as const,
+        label: "Program input before playback",
+        tooltip:
+          "Selected only after the app confirms playback has started and its output is ready.",
+        default: "unchanged" as const,
+        isVisibleExpression: "$(options:studioRouting)",
+        choices: [
+          { id: "unchanged", label: "Do not change" },
+          ...this.program.inputs,
+        ],
+      },
+      {
+        id: "studioAfter" as const,
+        type: "dropdown" as const,
+        label: "Program input after playback",
+        default: "unchanged" as const,
+        isVisibleExpression: "$(options:studioRouting)",
+        choices: [
+          { id: "unchanged", label: "Do not change" },
+          {
+            id: RESTORE_PREVIOUS_INPUT,
+            label: "Restore Previous Input",
+          },
+          ...this.program.inputs,
+        ],
+      },
+    ];
     const transportAction = (
       id: TransportActions,
     ): CompanionActionDefinition<{ tab: number } & RoutingOptions> => ({
@@ -516,43 +662,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       options: [
         this.tabField(),
         ...(["play", "restart", "toggle", "play_pause"].includes(id)
-          ? [
-              {
-                id: "studioRouting" as const,
-                type: "checkbox" as const,
-                label: "Change ATEM input before / after playback",
-                default: false,
-                disableAutoExpression: true,
-              },
-              {
-                id: "studioBefore" as const,
-                type: "dropdown" as const,
-                label: "Program input before playback",
-                tooltip:
-                  "Selected only after the app confirms playback has started and its output is ready.",
-                default: "unchanged" as const,
-                isVisibleExpression: "$(options:studioRouting)",
-                choices: [
-                  { id: "unchanged", label: "Do not change" },
-                  ...this.program.inputs,
-                ],
-              },
-              {
-                id: "studioAfter" as const,
-                type: "dropdown" as const,
-                label: "Program input after playback",
-                default: "unchanged" as const,
-                isVisibleExpression: "$(options:studioRouting)",
-                choices: [
-                  { id: "unchanged", label: "Do not change" },
-                  {
-                    id: RESTORE_PREVIOUS_INPUT,
-                    label: "Restore Previous Input",
-                  },
-                  ...this.program.inputs,
-                ],
-              },
-            ]
+          ? routingFields
           : []),
       ],
       callback: (event) => {
@@ -697,47 +807,66 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
           {
             id: "mode",
             type: "dropdown",
-            label: "Destination settings",
+            label: "Replay tab",
+            tooltip:
+              "Audio, framing, overlay and Video Output come from the Replay tab in the app.",
             default: "configured",
+            disableAutoExpression: true,
             choices: [
-              { id: "configured", label: "Use app Replay source settings" },
-              { id: "tab", label: "Choose a video output tab" },
+              {
+                id: "configured",
+                label: "Last selected Replay tab in the app",
+              },
+              { id: "source", label: "Choose a Replay tab" },
             ],
           },
-          this.tabField(),
+          this.replayTabField(),
+          ...routingFields,
           {
-            id: "audio",
-            type: "dropdown",
-            label: "Audio (when choosing a tab)",
-            default: "mac",
-            choices: [
-              { id: "mac", label: "Mac speakers" },
-              { id: "blackmagic", label: "Blackmagic output" },
-            ],
-          },
-          {
-            id: "fullFrame",
+            id: "replayRouting",
             type: "checkbox",
-            label: "Full screen (when choosing a tab)",
+            label: "Change SRC OUT during playback",
             default: false,
+            disableAutoExpression: true,
+          },
+          {
+            id: "replayAux",
+            type: "dropdown",
+            label: "SRC OUT output",
+            tooltip:
+              "Switched after the app confirms replay has started; its previous source returns before the app restores the video output.",
+            default: this.program.auxOutputs[0]?.id ?? 1,
+            isVisibleExpression: "$(options:replayRouting)",
+            choices: this.program.auxOutputs.length
+              ? this.program.auxOutputs
+              : [{ id: 1, label: "SRC OUT 1 · connect ATEM to list outputs" }],
+          },
+          {
+            id: "replaySource",
+            type: "dropdown",
+            label: "Source on SRC OUT during playback",
+            default: this.program.auxSources[0]?.id ?? 0,
+            isVisibleExpression: "$(options:replayRouting)",
+            choices: this.program.auxSources.length
+              ? this.program.auxSources
+              : [{ id: 0, label: "Connect ATEM to list sources" }],
           },
         ],
         callback: (event) =>
           this.execute((client) => {
             const generation = this.generation,
-              { path, mode, tab, audio, fullFrame } = event.options;
+              { path, mode, tab } = event.options;
             return client.startReplay(
               path || this.config.replayFile,
               mode,
               Number(tab),
-              audio,
-              fullFrame,
               (error) => {
                 if (generation !== this.generation) return;
                 this.lastError = error.message;
                 this.log("warn", error.message);
                 this.setVariableValues({ last_error: error.message });
               },
+              this.program.replayRoute(event.options),
             );
           }),
       },
@@ -745,6 +874,80 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         name: "Stop this connection’s replay and restore source",
         options: [],
         callback: () => this.execute((client) => client.stopReplay()),
+      },
+      chat_toggle: {
+        name: "Chat: put a message on air / hide",
+        description:
+          "Puts the chosen message on air; when a message is already on air, hides it.",
+        options: [
+          this.chatTabField(),
+          {
+            id: "pick",
+            type: "dropdown",
+            label: "Key press shows",
+            default: "latest",
+            choices: [
+              { id: "latest", label: "Latest message" },
+              { id: "highlight", label: "Latest Super Chat or membership" },
+            ],
+          },
+        ],
+        callback: (event) =>
+          this.execute((client) =>
+            client.chat(Number(event.options.tab), (tab) =>
+              keyCommand(tab, event.options.pick),
+            ),
+          ),
+      },
+      chat_hide: {
+        name: "Chat: hide message on air",
+        options: [this.chatTabField()],
+        callback: (event) =>
+          this.execute((client) =>
+            client.chat(Number(event.options.tab), () => ({
+              action: "chat-hide",
+            })),
+          ),
+      },
+      chat_browse: {
+        name: "Chat: browse messages (dial)",
+        description:
+          "Moves the preview through the latest 50 messages; at the newest message it follows new ones.",
+        options: [
+          this.chatTabField(),
+          {
+            id: "steps",
+            type: "number",
+            label: "Messages (negative = older, positive = newer)",
+            default: 1,
+            min: -50,
+            max: 50,
+            step: 1,
+          },
+        ],
+        callback: (event) => {
+          const tab = this.chatTab(Number(event.options.tab));
+          if (!tab) {
+            this.reportError(
+              new Error(
+                `Choose Chat as the source in tab ${event.options.tab} of the app.`,
+              ),
+            );
+            return;
+          }
+          this.chatBrowser.move(tab, Math.trunc(Number(event.options.steps)));
+          this.publishState();
+        },
+      },
+      chat_preview: {
+        name: "Chat: put previewed message on air / hide",
+        options: [this.chatTabField()],
+        callback: (event) =>
+          this.execute((client) =>
+            client.chat(Number(event.options.tab), (tab) =>
+              this.chatBrowser.press(tab),
+            ),
+          ),
       },
     });
     const tabFeedback = (
@@ -819,6 +1022,36 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         defaultStyle: { bgcolor: 0x8d258c, color: 0xffffff },
         callback: () => this.snapshot.replay?.busy === true,
       },
+      chat_on_air: {
+        type: "boolean",
+        name: "Chat: a message is on air",
+        options: [this.chatTabField()],
+        defaultStyle: { bgcolor: 0xb02727, color: 0xffffff },
+        callback: (event) => !!this.chatTab(Number(event.options.tab))?.onAir,
+      },
+      chat_preview_on_air: {
+        type: "boolean",
+        name: "Chat: previewed message is on air",
+        options: [this.chatTabField()],
+        defaultStyle: { bgcolor: 0xb02727, color: 0xffffff },
+        callback: (event) => {
+          const tab = this.chatTab(Number(event.options.tab));
+          return (
+            !!tab?.onAir &&
+            this.chatBrowser.position(tab).message?.id === tab.onAir.id
+          );
+        },
+      },
+      chat_ready: {
+        type: "boolean",
+        name: "Chat: messages available in Highlight mode",
+        options: [this.chatTabField()],
+        defaultStyle: { bgcolor: 0x176b34, color: 0xffffff },
+        callback: (event) => {
+          const tab = this.chatTab(Number(event.options.tab));
+          return tab?.mode === "highlight" && tab.messages.length > 0;
+        },
+      },
     });
     const variables: Record<string, { name: string }> = {
       online: { name: "App online" },
@@ -839,6 +1072,9 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
     for (const id of this.knownTabs)
       for (const [key, name] of Object.entries(variableNames))
         variables[`tab_${id}_${key}`] = { name: `Tab ${id}: ${name}` };
+    for (const id of this.knownChatTabs)
+      for (const [key, name] of Object.entries(chatVariableNames))
+        variables[`chat_${id}_${key}`] = { name: `Chat tab ${id}: ${name}` };
     for (const camera of this.knownCameras)
       for (const parameter of cameraParameters.filter(
         (parameter) => !parameter.trigger,
@@ -902,6 +1138,28 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       };
       for (const [key, value] of Object.entries(data))
         values[`tab_${id}_${key}`] = value;
+    }
+    for (const id of this.knownChatTabs) {
+      const tab = this.chatTab(id),
+        preview = tab ? this.chatBrowser.position(tab) : undefined;
+      const data = {
+        status: tab?.status ?? "",
+        mode: tab?.mode ?? "",
+        live: tab?.live ?? false,
+        message_count: tab?.messages.length ?? 0,
+        on_air: !!tab?.onAir,
+        ...messageValues("on_air", tab?.onAir),
+        ...messageValues("preview", preview?.message),
+        preview_position: preview?.message
+          ? `${preview.index + 1} / ${preview.total}`
+          : "",
+        preview_on_air: !!tab?.onAir && preview?.message?.id === tab.onAir.id,
+        latest_highlight_author: tab
+          ? (pickMessage(tab, "highlight")?.author ?? "")
+          : "",
+      };
+      for (const [key, value] of Object.entries(data))
+        values[`chat_${id}_${key}`] = value;
     }
     for (const camera of this.knownCameras)
       for (const parameter of cameraParameters.filter(
@@ -1268,9 +1526,11 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
               options: {
                 path: "",
                 mode: "configured",
-                tab: 1,
-                audio: "mac",
-                fullFrame: false,
+                tab: this.replayTabs()[0]?.id ?? 1,
+                studioRouting: false,
+                studioBefore: "unchanged",
+                studioAfter: "unchanged",
+                replayRouting: false,
               },
             },
           ],
@@ -1305,6 +1565,94 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       type: "simple",
       presets: ["replay_start", "replay_stop"],
     });
+    for (const id of [...this.knownChatTabs].sort((a, b) => a - b)) {
+      const v = (key: string) => `$(${this.label}:chat_${id}_${key})`;
+      const onAir = (feedbackId: "chat_on_air" | "chat_preview_on_air") => ({
+        feedbackId,
+        options: { tab: id },
+        style: { bgcolor: 0xb02727, color: 0xffffff },
+      });
+      const ready = {
+        feedbackId: "chat_ready" as const,
+        options: { tab: id },
+        style: { bgcolor: 0x176b34, color: 0xffffff },
+      };
+      const offline = {
+        feedbackId: "offline" as const,
+        options: {},
+        style: { bgcolor: 0x444444, color: 0xbbbbbb },
+      };
+      const style = (text: string) => ({
+        text,
+        size: "auto" as const,
+        color: 0xffffff,
+        bgcolor: 0x2b3440,
+        show_topbar: false,
+      });
+      const ids = [
+        `chat_${id}_latest`,
+        `chat_${id}_highlight`,
+        `chat_${id}_hide`,
+        `chat_${id}_dial`,
+      ];
+      for (const pick of ["latest", "highlight"] as const)
+        definitions[`chat_${id}_${pick}`] = {
+          type: "simple",
+          name:
+            pick === "latest"
+              ? `Chat tab ${id}: show latest / hide`
+              : `Chat tab ${id}: show Super Chat / hide`,
+          style: style(
+            pick === "latest"
+              ? `CHAT\nLATEST\n${v("on_air_author")}`
+              : `SUPER\nCHAT\n${v("latest_highlight_author")}`,
+          ),
+          steps: [
+            {
+              down: [{ actionId: "chat_toggle", options: { tab: id, pick } }],
+              up: [],
+            },
+          ],
+          feedbacks: [ready, onAir("chat_on_air"), offline],
+        };
+      definitions[`chat_${id}_hide`] = {
+        type: "simple",
+        name: `Chat tab ${id}: hide`,
+        style: style("HIDE\nCHAT"),
+        steps: [
+          { down: [{ actionId: "chat_hide", options: { tab: id } }], up: [] },
+        ],
+        feedbacks: [onAir("chat_on_air"), offline],
+      };
+      const browse = (
+        steps: number,
+      ): CompanionPresetAction<ModuleSchema["actions"]> => ({
+        actionId: "chat_browse",
+        options: { tab: id, steps },
+      });
+      definitions[`chat_${id}_dial`] = {
+        type: "simple",
+        name: `Chat tab ${id}: browse dial (press = on air / hide)`,
+        style: style(
+          `${v("preview_position")}\n${v("preview_author")}\n${v("preview_text")}`,
+        ),
+        steps: [
+          {
+            down: [{ actionId: "chat_preview", options: { tab: id } }],
+            up: [],
+            rotate_left: [browse(-1)],
+            rotate_right: [browse(1)],
+          },
+        ],
+        feedbacks: [onAir("chat_preview_on_air"), offline],
+      };
+      groups.push({
+        id: `chat_${id}`,
+        name: `Chat tab ${id}`,
+        type: "simple",
+        presets: ids,
+      });
+    }
     this.setPresetDefinitions(
       [{ id: "studio", name: "Saccani Live Studio", definitions: groups }],
       definitions,

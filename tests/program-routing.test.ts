@@ -4,7 +4,10 @@ import { Atem } from "atem-connection";
 import {
   ATEMProgramConnection,
   RESTORE_PREVIOUS_INPUT,
+  auxOutputs,
+  auxSources,
   changeProgram,
+  createReplayRoute,
   createProgramRoute,
   hasProgramRouting,
   programInputs,
@@ -190,4 +193,65 @@ test("headphone commands share the ATEM queue, accumulate rapid relative changes
   assert.equal(connection.headphones, undefined);
   assert.equal(fake.headphoneChanges.length, 12);
   await assert.rejects(connection.headphoneMute("mute"), /offline/);
+});
+
+test("replay routing switches SRC OUT and Program after start, then restores both in order", async () => {
+  const fake = new FakeAtem();
+  const enqueue = (work: () => Promise<void>) => work();
+  assert.deepEqual(auxOutputs(fake.asAtem()), [{ id: 1, label: "SRC OUT 1" }]);
+  assert.deepEqual(
+    auxSources(fake.asAtem()).map((input) => input.id),
+    [1, 5],
+  );
+  assert.equal(createReplayRoute(fake.asAtem(), {}, enqueue), undefined);
+  for (const options of [
+    { replayRouting: true, replayAux: 2, replaySource: 5 },
+    { replayRouting: true, replayAux: 1, replaySource: 9 },
+  ])
+    assert.throws(
+      () => createReplayRoute(fake.asAtem(), options, enqueue),
+      /SRC OUT/,
+    );
+  const route = createReplayRoute(
+    fake.asAtem(),
+    {
+      replayRouting: true,
+      replayAux: 1,
+      replaySource: 5,
+      studioRouting: true,
+      studioBefore: 5,
+      studioAfter: RESTORE_PREVIOUS_INPUT,
+    },
+    enqueue,
+  )!;
+  assert.equal(route.deferReturn, true);
+  await route.prepare();
+  assert.deepEqual(fake.auxChanges, []);
+  await route.before();
+  assert.deepEqual(fake.auxChanges, [[5, 0]]);
+  assert.deepEqual(fake.changes, [5]);
+  await route.after();
+  assert.deepEqual(fake.auxChanges, [
+    [5, 0],
+    [10010, 0],
+  ]);
+  assert.deepEqual(fake.changes, [5, 1]);
+});
+
+test("replay routing rollback restores SRC OUT only after it was switched", async () => {
+  const fake = new FakeAtem();
+  const route = createReplayRoute(
+    fake.asAtem(),
+    { replayRouting: true, replayAux: 1, replaySource: 1 },
+    (work) => work(),
+  )!;
+  await route.prepare();
+  await route.rollback();
+  assert.deepEqual(fake.auxChanges, []);
+  await route.before();
+  await route.rollback();
+  assert.deepEqual(fake.auxChanges, [
+    [1, 0],
+    [10010, 0],
+  ]);
 });

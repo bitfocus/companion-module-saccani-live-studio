@@ -19,6 +19,11 @@ export type RoutingOptions = {
   studioBefore?: number | "unchanged";
   studioAfter?: number | "unchanged" | typeof RESTORE_PREVIOUS_INPUT;
 };
+export type ReplayOutputOptions = {
+  replayRouting?: boolean;
+  replayAux?: number;
+  replaySource?: number;
+};
 export type ProgramRoute = {
   deferReturn?: boolean;
   prepare(): Promise<void>;
@@ -27,6 +32,7 @@ export type ProgramRoute = {
   rollback(): Promise<void>;
 };
 type Switcher = Pick<Atem, "state" | "changeProgramInput">;
+type AuxSwitcher = Pick<Atem, "state" | "setAuxSource">;
 
 export function hasProgramRouting(options: RoutingOptions): boolean {
   return (
@@ -133,6 +139,111 @@ export function createProgramRoute(
   };
 }
 
+export function auxOutputs(atem: AuxSwitcher | undefined) {
+  return (atem?.state?.video.auxilliaries ?? []).flatMap((source, index) =>
+    source === undefined
+      ? []
+      : [{ id: index + 1, label: `SRC OUT ${index + 1}` }],
+  );
+}
+export function auxSources(atem: AuxSwitcher | undefined) {
+  return Object.values(atem?.state?.inputs ?? {})
+    .filter(
+      (input) =>
+        input &&
+        (input.sourceAvailability & Enums.SourceAvailability.Auxiliary) !== 0,
+    )
+    .map((input) => ({
+      id: input!.inputId,
+      label: input!.longName.trim() || `Source ${input!.inputId}`,
+    }));
+}
+export function validateReplayOutput(
+  atem: AuxSwitcher,
+  options: ReplayOutputOptions,
+): void {
+  if (options.replayRouting !== true) return;
+  if (
+    !Number.isInteger(options.replayAux) ||
+    !auxOutputs(atem).some((output) => output.id === options.replayAux)
+  )
+    throw new Error("The selected SRC OUT output is unavailable on this ATEM.");
+  if (
+    !Number.isInteger(options.replaySource) ||
+    !auxSources(atem).some((input) => input.id === options.replaySource)
+  )
+    throw new Error("Select an available source for SRC OUT.");
+}
+async function changeAux(
+  atem: AuxSwitcher,
+  source: number,
+  bus: number,
+  timeout = 3000,
+): Promise<void> {
+  await atem.setAuxSource(source, bus);
+  const deadline = Date.now() + timeout;
+  while (atem.state?.video.auxilliaries[bus] !== source) {
+    if (Date.now() >= deadline)
+      throw new Error("ATEM did not confirm the SRC OUT change.");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+/** Program and SRC OUT routing share confirmed replay startup and the app's output-return acknowledgement. */
+export function createReplayRoute(
+  atem: Switcher & AuxSwitcher,
+  options: RoutingOptions & ReplayOutputOptions,
+  enqueue: (work: () => Promise<void>) => Promise<void>,
+): ProgramRoute | undefined {
+  const program = hasProgramRouting(options)
+    ? createProgramRoute(atem, options, enqueue)
+    : undefined;
+  if (options.replayRouting !== true) return program;
+  validateReplayOutput(atem, options);
+  const bus = options.replayAux! - 1;
+  let previous: number | undefined;
+  let attempted = false;
+  const restore = () =>
+    enqueue(async () => {
+      if (!attempted) return;
+      if (previous === undefined)
+        throw new Error("Previous SRC OUT source unavailable.");
+      await changeAux(atem, previous, bus);
+    });
+  return {
+    deferReturn: true,
+    prepare: async () => {
+      await program?.prepare();
+      await enqueue(async () => {
+        validateReplayOutput(atem, options);
+        previous = atem.state?.video.auxilliaries[bus];
+        if (previous === undefined)
+          throw new Error("Selected SRC OUT output unavailable.");
+      });
+    },
+    before: async () => {
+      await enqueue(async () => {
+        attempted = true;
+        await changeAux(atem, options.replaySource!, bus);
+      });
+      await program?.before();
+    },
+    after: async () => {
+      try {
+        await program?.after();
+      } finally {
+        await restore();
+      }
+    },
+    rollback: async () => {
+      try {
+        await program?.rollback();
+      } finally {
+        await restore();
+      }
+    },
+  };
+}
+
 /** Keep the UDP library intact; disable its separate worker/process transport. */
 export class ATEMProgramConnection {
   readonly camera = new CameraControl();
@@ -161,6 +272,12 @@ export class ATEMProgramConnection {
   }
   get inputs() {
     return this.online ? programInputs(this.atem) : [];
+  }
+  get auxOutputs() {
+    return this.online ? auxOutputs(this.atem) : [];
+  }
+  get auxSources() {
+    return this.online ? auxSources(this.atem) : [];
   }
   get headphones() {
     return this.online ? headphoneState(this.atem?.state) : undefined;
@@ -234,6 +351,18 @@ export class ATEMProgramConnection {
     return createProgramRoute(atem, options, (work) =>
       this.enqueue(atem, work),
     );
+  }
+  replayRoute(
+    options: RoutingOptions & ReplayOutputOptions,
+  ): ProgramRoute | undefined {
+    if (!hasProgramRouting(options) && options.replayRouting !== true)
+      return undefined;
+    const atem = this.atem;
+    if (!atem || !this.online)
+      throw new Error(
+        "ATEM offline: configure its IP address and connect before starting routed replay.",
+      );
+    return createReplayRoute(atem, options, (work) => this.enqueue(atem, work));
   }
   async close(): Promise<void> {
     ++this.generation;
