@@ -5,7 +5,7 @@
   "name": "Saccani Live Studio",
   "shortname": "Saccani Studio",
   "description": "HTTP/WebSocket playback, audio volume, jog, replay and live chat on air for the Saccani Live Studio macOS app",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "license": "MIT",
   "repository": "https://github.com/Supergiovane/SaccaniLiveStudioForCompanion",
   "bugs": "https://github.com/Supergiovane/SaccaniLiveStudioForCompanion/issues",

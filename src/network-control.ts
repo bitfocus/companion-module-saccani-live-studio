@@ -35,7 +35,7 @@ export class NetworkControl {
     if (!['http:', 'https:'].includes(this.base.protocol) || this.base.username || this.base.password || this.base.search || this.base.hash || this.base.pathname !== '/') {
       throw new Error('Enter the app API base URL, for example http://127.0.0.1:8765.');
     }
-    if (connection.token && !/^[a-f0-9]{64}$/i.test(connection.token)) throw new Error('Copy the API access token from Saccani Live Studio → File → Remote Control….');
+    if (connection.token && !/^[a-f0-9]{64}$/i.test(connection.token)) throw new Error('Copy the API access token from Saccani Live Studio → Settings… → Remote Control.');
   }
   private connect(): void {
     if (this.closed || this.socket || Date.now() - this.lastConnect < 2000) return;

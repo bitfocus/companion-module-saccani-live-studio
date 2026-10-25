@@ -161,7 +161,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         label: "Saccani Live Studio connection",
         width: 12,
         value:
-          "For HTTP / WebSocket, enable File → Remote Control… in the app. Leave the token blank unless Require access token is enabled in the app. Enable LAN access for Companion on another computer. Load media and open video outputs in the app. Replay paths always belong to the app Mac.",
+          "For HTTP / WebSocket, enable Settings… → Remote Control in the app. Leave the token blank unless Require access token is enabled in the app. Enable LAN access for Companion on another computer. Load media and open video outputs in the app. Replay paths always belong to the app Mac.",
       },
       {
         type: "textinput",

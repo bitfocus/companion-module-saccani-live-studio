@@ -1,12 +1,12 @@
 # Saccani Live Studio for Bitfocus Companion
 
-Free MIT-licensed Companion connection module for **Saccani Live Studio** on macOS. Version **0.6.0**. It controls only the app; use Companion’s official Blackmagic ATEM module for the switcher, cameras and audio.
+Free MIT-licensed Companion connection module for **Saccani Live Studio** on macOS. Version **0.6.1**. It controls only the app; use Companion’s official Blackmagic ATEM module for the switcher, cameras and audio.
 
 ## Install
 
 1. Use **Companion 4.3 or later** on macOS, Windows, Linux or Raspberry Pi. Saccani Live Studio runs on its Mac.
 2. In Companion, open **Modules → Import module package** and choose the `.tgz` from `pkg/`.
-3. Add the **Saccani → Live Studio** connection, enter the app API URL shown in **File → Remote Control…**. Leave the token blank by default; supply the app token only if **Require access token** is enabled. The default URL is `http://127.0.0.1:8765`; enable LAN access in the app and use its Mac IPv4 address for a remote controller.
+3. Add the **Saccani → Live Studio** connection, enter the app API URL shown in **Settings… → Remote Control**. Leave the token blank by default; supply the app token only if **Require access token** is enabled. The default URL is `http://127.0.0.1:8765`; enable LAN access in the app and use its Mac IPv4 address for a remote controller.
 4. Open Saccani Live Studio, load a video or audio source, and keep the app running. App **0.21.0+** provides the network API; Replay tabs need **0.22.1+** and live chat **0.23.0+**.
 5. Drag buttons or dials from **Presets** onto your Companion page. Each preset targets the stable tab number; deleting a tab does not renumber other tabs.
 
@@ -43,7 +43,7 @@ Each chat tab has presets for these keys and a dial whose text shows the preview
 
 ## App Store edition
 
-In the Mac App Store edition, use **File → Allow Replay Recordings Folder…** to grant access to external replay recordings.
+In the Mac App Store edition, use **Settings… → General → Allow Replay Recordings Folder…** to grant access to external replay recordings.
 
 ## Connection and lifecycle
 

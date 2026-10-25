@@ -4,9 +4,9 @@ Controls the separate Saccani Live Studio macOS app. Requires Companion **4.3+**
 
 ## Connect
 
-Open the app and load your sources. Open **File → Remote Control…** and enter its API URL. Leave the token blank: authentication is disabled by default. If you enable **Require access token** in the app, copy that token into Companion. For another computer, enable LAN access in the app and use its Mac IPv4 address. The default URL is `http://127.0.0.1:8765`. Use a trusted network or a TLS proxy.
+Open the app and load your sources. Open **Settings… → Remote Control** and enter its API URL. Leave the token blank: authentication is disabled by default. If you enable **Require access token** in the app, copy that token into Companion. For another computer, enable LAN access in the app and use its Mac IPv4 address. The default URL is `http://127.0.0.1:8765`. Use a trusted network or a TLS proxy.
 
-In the Mac App Store edition, authorize replay recordings with **File → Allow Replay Recordings Folder…**.
+In the Mac App Store edition, authorize replay recordings with **Settings… → General → Allow Replay Recordings Folder…**.
 
 ## Play, audio and jog
 
