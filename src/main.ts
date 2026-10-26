@@ -179,7 +179,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       {
         type: "textinput",
         id: "replayFile",
-        label: "Default replay MP4 file (absolute Mac path)",
+        label: "Default replay MP4 file (absolute Mac path; blank = the ATEM's latest clip)",
         width: 12,
         default: "",
       },
@@ -455,12 +455,14 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         },
       },
       replay_start: {
-        name: "Replay final 15 seconds of MP4",
+        name: "Replay the latest ATEM clip or an MP4",
+        description:
+          "Plays the end of the clip on a Replay tab, for the seconds set in that tab (15 by default).",
         options: [
           {
             id: "path",
             type: "textinput",
-            label: "MP4 file (blank = configured default)",
+            label: "MP4 file (blank = default, else the ATEM's latest clip)",
             default: "",
             useVariables: true,
           },
@@ -877,7 +879,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       type: "simple",
       name: "Replay (app settings and default clip)",
       style: {
-        text: "REPLAY\n15 SEC",
+        text: "REPLAY",
         size: "auto",
         color: 0xffffff,
         bgcolor: 0x5d245e,

@@ -52,6 +52,7 @@ export type ReplayStatus = {
   seenAt: number;
   busy: boolean;
   configuredReplayControl?: boolean;
+  latestAtemClipControl?: boolean;
   replayStopControl?: boolean;
   replaySourceControl?: boolean;
   replayPlaybackControl?: boolean;
@@ -380,9 +381,10 @@ export class StudioClient {
     try {
       if (!["configured", "source"].includes(mode))
         throw new Error("Invalid replay settings.");
-      if (!path.startsWith("/") || !path.toLowerCase().endsWith(".mp4"))
+      // No path: the app replays the ATEM's latest clip, as Controller for Live Studio does.
+      if (path && (!path.startsWith("/") || !path.toLowerCase().endsWith(".mp4")))
         throw new Error(
-          "Choose an absolute MP4 path on the Mac running the app.",
+          "Choose an absolute MP4 path on the Mac running the app, or leave it blank for the ATEM's latest clip.",
         );
       const { replay } = await this.snapshot();
       if (!replay || replay.busy)
@@ -397,6 +399,10 @@ export class StudioClient {
       )
         throw new Error(
           "Update Saccani Live Studio to 0.22.1 or later for Replay through a Replay tab.",
+        );
+      if (!path && replay.latestAtemClipControl !== true)
+        throw new Error(
+          "Update Saccani Live Studio to 0.22.30 or later to replay the ATEM's latest clip, or choose an MP4 path.",
         );
       const destination = mode === "configured" ? replay.replayTab : tabID;
       const output = replay.outputs?.find(
@@ -432,7 +438,7 @@ export class StudioClient {
       submission = network.submit(
         "/api/v1/replay/start",
         {
-          path,
+          ...(path ? { path } : {}),
           mode: mode === "configured" ? "configured" : `source${tab}`,
           audio: "mac",
         },

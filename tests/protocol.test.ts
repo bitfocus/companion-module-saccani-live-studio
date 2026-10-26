@@ -423,6 +423,15 @@ test("replay targets an exact Replay tab, validates its output and closing cance
       /Replay as its source/,
     );
     output.sourceKind = "replay";
+    // A blank path asks the app for the ATEM's latest clip, which needs app 0.22.30.
+    await assert.rejects(
+      f.client.startReplay("", "source", 4, () => undefined),
+      /0\.22\.30/,
+    );
+    await assert.rejects(
+      f.client.startReplay("clip.mov", "source", 4, () => undefined),
+      /absolute MP4 path/,
+    );
     f.replay.replaySourceControl = false;
     await assert.rejects(
       f.client.startReplay(clip, "source", 4, () => undefined),
@@ -434,8 +443,10 @@ test("replay targets an exact Replay tab, validates its output and closing cance
       /Invalid replay settings/,
     );
     assert.equal(f.replays.length, 0);
-    await f.client.startReplay(clip, "source", 4, () => undefined);
+    f.replay.latestAtemClipControl = true;
+    await f.client.startReplay("", "source", 4, () => undefined);
     assert.equal(f.replays[0]!.mode, "source4");
+    assert.equal("path" in f.replays[0]!, false);
     await wait(75);
     await f.client.close();
     await wait(100);

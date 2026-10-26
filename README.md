@@ -1,6 +1,6 @@
 # Saccani Live Studio for Bitfocus Companion
 
-Free MIT-licensed Companion connection module for **Saccani Live Studio** on macOS. Version **0.6.1**. It controls only the app; use Companion’s official Blackmagic ATEM module for the switcher, cameras and audio.
+Free MIT-licensed Companion connection module for **Saccani Live Studio** on macOS. Version **0.6.2**. It controls only the app; use Companion’s official Blackmagic ATEM module for the switcher, cameras and audio.
 
 ## Install
 
@@ -17,19 +17,19 @@ A repository in the Bitfocus organisation has been requested. Until the module i
 - Play / Resume, Pause, Stop and return to beginning, Restart and play, Play / Stop toggle.
 - Video Play / Pause toggle and jog forward/backward in frames or seconds. Jog preserves playback or pause and follows the identity of the selected clip.
 - Audio-tab volume, either an absolute 0–100% value or a relative change. The audio volume dial moves by 5 percentage points per step. Video sources play their audio on the Mac by default.
-- Replay the final 15 seconds of an MP4 (or the complete clip if shorter) through a tab whose source is **Replay**: the last selected Replay tab in the app, or a chosen one. Audio, framing, overlay and Video Output come from that tab.
+- Replay the end of the ATEM's latest clip, or of an MP4, through a tab whose source is **Replay**, for the seconds set in that tab (15 by default; a shorter clip plays whole): the last selected Replay tab in the app, or a chosen one. Audio, framing, overlay and Video Output come from that tab.
 - Live chat: put the latest message or the latest Super Chat/membership on air, hide it, or browse the latest 50 messages with a dial and press to put the previewed one on air.
 - Stop a replay started by this connection and restore its original source. Replays started from another connection, Elgato or the app must be stopped by their owner or by **Stop Replay** in the app.
 - Dynamic variables for filename, source type, playback/loading state, output state, clip-relative position, remaining time, progress and audio volume. `last_error` reports command failures. Counters are clip-relative; they are not original camera timecode or SMPTE drop-frame counters.
 - Feedback colors for playback, loading/replay, readiness, output, chat on air and app offline.
 
-Set the connection's **Default replay MP4 file** or specify an absolute MP4 path in the action; the path belongs to the Mac running the app, and clips are never uploaded. Discovering the latest ATEM recording, stopping recording, copying recordings and discarding takes work on the app Mac's files and remain in the Stream Deck plugin.
+Leave the action's MP4 file and the connection's **Default replay MP4 file** blank to replay the ATEM's latest clip, as the Stream Deck plugin does: with app **0.22.30+**, the app finds the newest finished PROGRAM recording in the disk folder set in its **Settings… → ATEM**, mounting the ATEM's network share if needed. Or set an absolute MP4 path, which belongs to the Mac running the app; clips are never uploaded. Stopping recording, copying recordings and discarding takes remain in the Stream Deck plugin.
 
 Preset dials expose rotation and press actions. Actual availability depends on your surface and Companion's surface driver. The Elgato plugin's touchstrip artwork and hold-to-accelerate behavior are not reproduced.
 
 ## Replay
 
-With app **0.22.1+**, choose **Replay** as a tab's source in the app and configure its Video Output, audio, framing and overlay there. In **Replay final 15 seconds of MP4**, keep **Last selected Replay tab in the app** or choose a Replay tab. The app opens the configured output if needed, takes it from the tab that was using it and restores that tab at Stop, completion or a failed start.
+With app **0.22.1+**, choose **Replay** as a tab's source in the app and configure its Video Output, audio, framing and overlay there. In **Replay the latest ATEM clip or an MP4**, keep **Last selected Replay tab in the app** or choose a Replay tab. The app opens the configured output if needed, takes it from the tab that was using it and restores that tab at Stop, completion or a failed start.
 
 ## Live chat
 
