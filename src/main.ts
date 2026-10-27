@@ -56,6 +56,7 @@ export type ModuleSchema = {
     chat_browse: { options: { tab: number; steps: number } };
     chat_preview: { options: { tab: number } };
     status_acknowledge: { options: { tab: number } };
+    channel_enable: { options: { tab: number; mode: "toggle" | "on" | "off" } };
   };
   feedbacks: {
     offline: { type: "boolean"; options: Record<string, never> };
@@ -68,7 +69,8 @@ export type ModuleSchema = {
       | "output"
       | "chat_on_air"
       | "chat_preview_on_air"
-      | "chat_ready"]: {
+      | "chat_ready"
+      | "channel_enabled"]: {
       type: "boolean";
       options: { tab: number };
     };
@@ -116,6 +118,7 @@ const variableNames: Record<string, string> = {
   remaining_seconds: "Remaining seconds",
   progress: "Progress percent",
   volume: "Audio volume percent",
+  enabled: "Channel enabled",
 };
 const chatVariableNames: Record<string, string> = {
   status: "Status",
@@ -616,6 +619,32 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
             ),
           ),
       },
+      channel_enable: {
+        name: "Channel: enable / disable",
+        description:
+          "A disabled channel shows nothing on its output or as an overlay, and a Status channel is silent; its source keeps running.",
+        options: [
+          this.tabField(),
+          {
+            id: "mode",
+            type: "dropdown",
+            label: "On press",
+            default: "toggle",
+            choices: [
+              { id: "toggle", label: "Toggle" },
+              { id: "on", label: "Enable" },
+              { id: "off", label: "Disable" },
+            ],
+          },
+        ],
+        callback: (event) =>
+          this.execute((client) =>
+            client.channelEnable(
+              Number(event.options.tab),
+              event.options.mode as "toggle" | "on" | "off",
+            ),
+          ),
+      },
       status_acknowledge: {
         name: "Status: clear alerts",
         description:
@@ -697,6 +726,16 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
             this.chatBrowser.position(tab).message?.id === tab.onAir.id
           );
         },
+      },
+      channel_enabled: {
+        type: "boolean",
+        name: "Channel enabled",
+        options: [this.tabField()],
+        defaultStyle: { bgcolor: 0x176b34, color: 0xffffff },
+        callback: (event) =>
+          this.snapshot.playback?.tabs.find(
+            (tab) => tab.id === Number(event.options.tab),
+          )?.enabled === true,
       },
       status_row: {
         type: "advanced",
@@ -802,6 +841,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         remaining_seconds: remaining,
         progress: duration > 0 ? Math.min(100, (position / duration) * 100) : 0,
         volume: Math.round((tab?.volume ?? 0) * 100),
+        enabled: tab?.enabled ?? false,
       };
       for (const [key, value] of Object.entries(data))
         values[`tab_${id}_${key}`] = value;
@@ -971,6 +1011,42 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
           ],
         };
       }
+      const channelKey = `tab_${id}_channel`;
+      ids.push(channelKey);
+      definitions[channelKey] = {
+        type: "simple",
+        name: `Tab ${id} Channel enable / disable`,
+        style: {
+          text: `CH ${id}\nOFF`,
+          size: "auto",
+          color: 0xffffff,
+          bgcolor: 0x8a1c1c,
+          show_topbar: false,
+        },
+        steps: [
+          {
+            down: [
+              {
+                actionId: "channel_enable",
+                options: { tab: id, mode: "toggle" },
+              },
+            ],
+            up: [],
+          },
+        ],
+        feedbacks: [
+          {
+            feedbackId: "channel_enabled",
+            options: { tab: id },
+            style: { bgcolor: 0x176b34, text: `CH ${id}\nON` },
+          },
+          {
+            feedbackId: "offline",
+            options: {},
+            style: { bgcolor: 0x444444, color: 0xbbbbbb },
+          },
+        ],
+      };
       groups.push({
         id: `tab_${id}`,
         name: `Tab ${id}`,

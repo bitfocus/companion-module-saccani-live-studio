@@ -554,3 +554,29 @@ test("display counters are clip-relative, clamp invalid values, and support frac
   assert.equal(formatTime(-20), "00:00:00");
   assert.equal(formatTime(Infinity), "00:00:00");
 });
+
+test("channel enable commands need the app's capability and an existing channel", async () => {
+  const f = await fixture();
+  try {
+    const tab = f.status.tabs[0]!;
+    await assert.rejects(f.client.channelEnable(tab.id, "toggle"), /0\.22\.51/);
+    (f.status as { channelEnableControl?: boolean }).channelEnableControl =
+      true;
+    (tab as { enabled?: boolean }).enabled = true;
+    await f.publish();
+    await f.client.channelEnable(tab.id, "off");
+    await f.client.channelEnable(tab.id, "on");
+    await f.client.channelEnable(tab.id, "toggle");
+    assert.deepEqual(
+      f.commands.map((command) => [command.tab, command.action]),
+      [
+        [tab.id, "disable"],
+        [tab.id, "enable"],
+        [tab.id, "toggle-enabled"],
+      ],
+    );
+    await assert.rejects(f.client.channelEnable(99, "on"), /Channel 99/);
+  } finally {
+    await f.close();
+  }
+});

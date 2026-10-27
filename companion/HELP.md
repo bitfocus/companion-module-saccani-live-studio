@@ -28,9 +28,17 @@ Choose **Chat** as a tab's source, connect it to a YouTube broadcast and keep it
 
 Each chat tab has ready-made presets. Variables `chat_<tab>_…` show status, the message on air and the preview (author, text, Super Chat amount, position). Look, position and **Hide after** are set in the app; in Feed mode only hiding works.
 
+## Channel enable
+
+**Channel: enable / disable** toggles a channel of the app, or always enables or disables it (app **0.22.51+**). A disabled channel shows nothing on its output or as an overlay, and a Status channel is silent; its source keeps running. The **Channel enabled** feedback, the `tab_<n>_enabled` variable and a preset per tab come with it.
+
 ## Status
 
 Choose **Status** as a tab's source: a live checklist of the ATEM, microphones, cameras, recording and streaming, with alerts. The feedback **Status: show a row with its colors** gives a button the text and colors of a row, blinking with an uncleared alert; row **0** is a master warning (ALL OK, or the first alert with the number of alerts). **Status: clear alerts** silences the app's chime and stops the blinking; the rows keep their alert colors until the problem is solved. **Status: alert not yet cleared** is a boolean feedback. Each Status tab has presets for the master warning and every row; variables `status_<tab>_row_<n>` and `status_<tab>_alerts` show the rows and the number of uncleared alerts.
+
+## Channel enable
+
+**Channel: enable / disable** toggles a channel of the app, or always enables or disables it (app **0.22.51+**). A disabled channel shows nothing on its output or as an overlay, and a Status channel is silent; its source keeps running. The **Channel enabled** feedback, the `tab_<n>_enabled` variable and a preset per tab come with it.
 
 ## Status
 

@@ -21,6 +21,7 @@ A repository in the Bitfocus organisation has been requested. Until the module i
 - Live chat: put the latest message or the latest Super Chat/membership on air, hide it, or browse the latest 50 messages with a dial and press to put the previewed one on air.
 - Stop a replay started by this connection and restore its original source. Replays started from another connection, Elgato or the app must be stopped by their owner or by **Stop Replay** in the app.
 - Dynamic variables for filename, source type, playback/loading state, output state, clip-relative position, remaining time, progress and audio volume. `last_error` reports command failures. Counters are clip-relative; they are not original camera timecode or SMPTE drop-frame counters.
+- Channel enable: toggle a channel on or off, or always enable or disable it.
 - Status: buttons that show a row of the app's Status checklist in its colors, blinking on alert, or all alerts as a master warning; a press clears the alerts.
 - Feedback colors for playback, loading/replay, readiness, output, chat on air, Status rows and app offline.
 
@@ -41,6 +42,10 @@ With app **0.23.0+**, choose **Chat** as a tab's source, connect it to a YouTube
 - **Chat: browse messages (dial)** moves a preview through the latest 50 messages (negative = older). At the newest message the preview follows new messages; after browsing back it stays put. **Chat: put previewed message on air / hide** puts the preview on air, or hides it when it is already there.
 
 Each chat tab has presets for these keys and a dial whose text shows the preview position, author and message. Variables `chat_<tab>_…` expose status, mode, the message on air and the preview; feedbacks mark a message on air and messages available in Highlight mode. Deleted messages leave the preview and the screen at once. The look, position and **Hide after** time are set in the app. In Feed mode the app shows messages automatically, so only hiding is possible.
+
+## Channel enable
+
+With app **0.22.51+**, **Channel: enable / disable** toggles a channel, or always enables or disables it. A disabled channel shows nothing on its output or as an overlay on another channel, and a Status channel plays no sound; its source keeps running. The app can also disable a channel by itself when the ATEM starts streaming or recording. The **Channel enabled** feedback, the `tab_<n>_enabled` variable and a **Channel enable / disable** preset per tab show and change the state.
 
 ## Status
 

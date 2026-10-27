@@ -27,6 +27,8 @@ export type Tab = {
   duration?: number;
   frameRate?: number;
   volume?: number;
+  /** Whether the channel shows its picture (app 0.22.51+). */
+  enabled?: boolean;
 };
 export type PlaybackStatus = {
   seenAt: number;
@@ -37,6 +39,7 @@ export type PlaybackStatus = {
   videoReturnRoutingControl?: boolean;
   playbackTransportControl?: boolean;
   audioVolumeControl?: boolean;
+  channelEnableControl?: boolean;
   tabs: Tab[];
 };
 export type ReplayOutput = {
@@ -354,6 +357,38 @@ export class StudioClient {
           command.action === "chat-show"
             ? { messageID: command.message.id }
             : {},
+          controller.signal,
+        );
+      } finally {
+        this.pending.delete(controller);
+      }
+    });
+  }
+  /** Enables or disables a channel: toggle, or always on or off. */
+  channelEnable(id: number, mode: "toggle" | "on" | "off"): Promise<void> {
+    return this.serial(async () => {
+      if (!Number.isSafeInteger(id) || id < 1)
+        throw new Error("Select a valid channel number.");
+      const { playback } = await this.snapshot();
+      if (playback?.channelEnableControl !== true)
+        throw new Error(
+          "Open Saccani Live Studio 0.22.51 or later to enable and disable channels.",
+        );
+      if (
+        typeof playback.tabs.find((tab) => tab.id === id)?.enabled !== "boolean"
+      )
+        throw new Error(`Channel ${id} no longer exists in the app.`);
+      const controller = new AbortController();
+      this.pending.add(controller);
+      try {
+        await this.network.command(
+          id,
+          mode === "on"
+            ? "enable"
+            : mode === "off"
+              ? "disable"
+              : "toggle-enabled",
+          {},
           controller.signal,
         );
       } finally {
