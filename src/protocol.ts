@@ -11,6 +11,7 @@ import {
   type ChatStatus,
   type ChatTab,
 } from "./chat.ts";
+import { validStatusBoard, statusTab, type StatusBoard } from "./status.ts";
 export type Tab = {
   id: number;
   sourceKind: string;
@@ -64,6 +65,7 @@ export type Snapshot = {
   playback?: PlaybackStatus;
   replay?: ReplayStatus;
   chat?: ChatStatus;
+  statusBoard?: StatusBoard;
 };
 export type Transport =
   | "play"
@@ -179,10 +181,16 @@ export class StudioClient {
       playback && raw && typeof raw === "object"
         ? { ...raw, seenAt: playback.seenAt }
         : undefined;
+    const rawStatus = (value as { statusBoard?: unknown }).statusBoard;
+    const statusBoard =
+      playback && rawStatus && typeof rawStatus === "object"
+        ? { ...rawStatus, seenAt: playback.seenAt }
+        : undefined;
     return {
       playback,
       replay: validReplay(value.replay) ? value.replay : undefined,
       chat: validChat(chat) ? chat : undefined,
+      statusBoard: validStatusBoard(statusBoard) ? statusBoard : undefined,
     };
   }
   private async tab(
@@ -353,6 +361,26 @@ export class StudioClient {
       }
     });
   }
+  /** Clears a Status tab's alerts: the app's chime stops and the rows stop blinking. */
+  acknowledgeStatus(id: number): Promise<void> {
+    return this.serial(async () => {
+      const { statusBoard } = await this.snapshot();
+      statusTab(statusBoard, id);
+      const controller = new AbortController();
+      this.pending.add(controller);
+      try {
+        const accepted = await this.network.submit(
+          "/api/v1/status-board/acknowledge",
+          { tab: id },
+          undefined,
+          controller.signal,
+        );
+        await this.network.wait(accepted.id, 5000, controller.signal);
+      } finally {
+        this.pending.delete(controller);
+      }
+    });
+  }
   async startReplay(
     path: string,
     mode: "configured" | "source",
@@ -382,7 +410,10 @@ export class StudioClient {
       if (!["configured", "source"].includes(mode))
         throw new Error("Invalid replay settings.");
       // No path: the app replays the ATEM's latest clip, as Controller for Live Studio does.
-      if (path && (!path.startsWith("/") || !path.toLowerCase().endsWith(".mp4")))
+      if (
+        path &&
+        (!path.startsWith("/") || !path.toLowerCase().endsWith(".mp4"))
+      )
         throw new Error(
           "Choose an absolute MP4 path on the Mac running the app, or leave it blank for the ATEM's latest clip.",
         );

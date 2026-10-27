@@ -472,6 +472,193 @@ test("Companion chat actions, dial preview, feedbacks and presets follow the app
   }
 });
 
+test("Companion Status rows show the app's colors, blink on alert and clear the alerts", async () => {
+  const values: ModuleSchema["variables"] = {};
+  let actions: CompanionActionDefinitions<ModuleSchema["actions"]> = {};
+  let feedbacks: CompanionFeedbackDefinitions<ModuleSchema["feedbacks"]> = {};
+  let presets: CompanionPresetDefinitions<ModuleSchema> = {};
+  const context: InstanceContext<ModuleSchema> = {
+    _isInstanceContext: true,
+    id: "status-test",
+    label: "studio",
+    upgradeScripts: [],
+    sharedUdpSocketHandlers: new Map(),
+    saveConfig: () => undefined,
+    updateStatus: () => undefined,
+    oscSend: () => undefined,
+    recordAction: () => undefined,
+    subscribeActions: () => undefined,
+    unsubscribeActions: () => undefined,
+    unsubscribeFeedbacks: () => undefined,
+    checkFeedbacks: () => undefined,
+    checkAllFeedbacks: () => undefined,
+    checkFeedbacksById: () => undefined,
+    setActionDefinitions: (definitions) => {
+      actions = definitions;
+    },
+    setFeedbackDefinitions: (definitions) => {
+      feedbacks = definitions;
+    },
+    setPresetDefinitions: (_structure, definitions) => {
+      presets = definitions;
+    },
+    setVariableDefinitions: () => undefined,
+    setVariableValues: (update) => {
+      Object.assign(values, update);
+    },
+    getVariableValue: (id) => values[id],
+    sharedUdpSocketJoin: async () => {
+      throw new Error("No UDP allowed in this local module");
+    },
+    sharedUdpSocketLeave: async () => undefined,
+    sharedUdpSocketSend: async () => undefined,
+  };
+  const row = (id: string, label: string, value: string, alert = false) => ({
+    id,
+    label,
+    value,
+    text: `${label}  ${value}`,
+    alert,
+    acknowledged: false,
+    blink: true,
+    alertForeground: "#FFFFFF",
+    alertBackground: "#D70015",
+  });
+  const statusBoard = {
+    statusControl: true,
+    tabs: [
+      {
+        id: 5,
+        alert: true,
+        foreground: "#3CF06E",
+        background: "#000000",
+        rows: [
+          row("a", "ATEM", "CONNECTED"),
+          row("m", "MIC 1", "NO AUDIO 6s", true),
+        ],
+      },
+    ],
+  };
+  const commands: Record<string, unknown>[] = [];
+  const results = new Map<string, Record<string, unknown>>();
+  const server = createServer(async (request, response) => {
+    response.setHeader("Content-Type", "application/json");
+    if (request.url === "/api/v1/status") {
+      response.end(
+        JSON.stringify({
+          playback: { seenAt: 1, videoControl: true, tabs: [] },
+          replay: { busy: false, seenAt: 1 },
+          statusBoard: { ...statusBoard, seenAt: 1 },
+          operations: [],
+        }),
+      );
+      return;
+    }
+    if (request.method !== "POST") {
+      const id = request.url!.split("/").at(-1);
+      response.writeHead(id && results.has(id) ? 200 : 404);
+      response.end(JSON.stringify(results.get(id!) ?? {}));
+      return;
+    }
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk));
+    const body = JSON.parse(Buffer.concat(chunks).toString());
+    commands.push({ ...body, url: request.url });
+    results.set(body.id, { id: body.id, state: "completed" });
+    for (const item of statusBoard.tabs[0]!.rows)
+      if (item.alert) item.acknowledged = true;
+    response.writeHead(202);
+    response.end(JSON.stringify({ id: body.id, state: "completed" }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const instance = new StudioInstance(context);
+  const feedback = (
+    feedbackId: "status_row" | "status_alert",
+    options: Record<string, unknown>,
+  ) =>
+    (feedbacks[feedbackId]!.callback as (...args: unknown[]) => unknown)(
+      { id: "f", controlId: "1/1/1", feedbackId, options },
+      { type: "feedback" },
+    );
+  try {
+    await instance.init({
+      url: `http://127.0.0.1:${address.port}`,
+      replayFile: "",
+    });
+    await wait(300);
+    assert.equal(values.status_5_row_2, "MIC 1  NO AUDIO 6s");
+    assert.equal(values.status_5_alerts, 1);
+    assert.ok(presets.status_5_row_0);
+    assert.ok(presets.status_5_row_2);
+    assert.deepEqual(await feedback("status_row", { tab: 5, row: 1 }), {
+      text: "ATEM\nCONNECTED",
+      color: 0x3cf06e,
+      bgcolor: 0x000000,
+    });
+    const colors = new Set<number>();
+    for (let i = 0; i < 4; i++) {
+      colors.add(
+        (
+          (await feedback("status_row", { tab: 5, row: 2 })) as {
+            bgcolor: number;
+          }
+        ).bgcolor,
+      );
+      await wait(130);
+    }
+    assert.deepEqual(
+      [...colors].sort(),
+      [0x000000, 0xd70015],
+      "an uncleared alert blinks",
+    );
+    assert.equal(
+      ((await feedback("status_row", { tab: 5, row: 0 })) as { text: string })
+        .text,
+      "ALERT\nMIC 1  NO AUDIO 6s",
+    );
+    assert.equal(await feedback("status_alert", { tab: 5, row: 0 }), true);
+    await (
+      actions.status_acknowledge!.callback as (...args: unknown[]) => unknown
+    )(
+      {
+        id: "a",
+        controlId: "1/1/1",
+        actionId: "status_acknowledge",
+        options: { tab: 5 },
+      },
+      { type: "action" },
+    );
+    await wait(300);
+    assert.equal(commands.at(-1)?.url, "/api/v1/status-board/acknowledge");
+    assert.equal(commands.at(-1)?.tab, 5);
+    assert.equal(await feedback("status_alert", { tab: 5, row: 2 }), false);
+    assert.deepEqual(await feedback("status_row", { tab: 5, row: 2 }), {
+      text: "MIC 1\nNO AUDIO 6s",
+      color: 0xffffff,
+      bgcolor: 0xd70015,
+    });
+    assert.equal(values.status_5_alerts, 0);
+    await (
+      actions.status_acknowledge!.callback as (...args: unknown[]) => unknown
+    )(
+      {
+        id: "b",
+        controlId: "1/1/1",
+        actionId: "status_acknowledge",
+        options: { tab: 8 },
+      },
+      { type: "action" },
+    );
+    assert.match(String(values.last_error), /tab 8/);
+  } finally {
+    await instance.destroy();
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("upgrade moves saved output-tab replays to Replay tabs and leaves other actions alone", async () => {
   const { UpgradeScripts } = await import(
     process.env.SACCANI_MODULE_ENTRY || "../dist/main.js"

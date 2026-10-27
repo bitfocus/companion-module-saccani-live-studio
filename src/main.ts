@@ -2,6 +2,7 @@ import {
   InstanceBase,
   InstanceStatus,
   type CompanionActionDefinition,
+  type CompanionAdvancedFeedbackDefinition,
   type CompanionBooleanFeedbackDefinition,
   type CompanionInputFieldDropdown,
   type CompanionPresetDefinitions,
@@ -22,6 +23,7 @@ import {
   type ChatMessage,
   type ChatPick,
 } from "./chat.js";
+import { statusRow, statusStyle } from "./status.js";
 type Config = { replayFile: string; url: string };
 type Secrets = { token?: string };
 type TransportActions =
@@ -53,6 +55,7 @@ export type ModuleSchema = {
     chat_hide: { options: { tab: number } };
     chat_browse: { options: { tab: number; steps: number } };
     chat_preview: { options: { tab: number } };
+    status_acknowledge: { options: { tab: number } };
   };
   feedbacks: {
     offline: { type: "boolean"; options: Record<string, never> };
@@ -69,6 +72,9 @@ export type ModuleSchema = {
       type: "boolean";
       options: { tab: number };
     };
+  } & {
+    status_row: { type: "advanced"; options: { tab: number; row: number } };
+    status_alert: { type: "boolean"; options: { tab: number; row: number } };
   };
   variables: Record<string, string | number | boolean>;
 };
@@ -148,6 +154,8 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
   private tabSignature = "";
   private knownTabs = new Set([1, 2, 3]);
   private knownChatTabs = new Set<number>();
+  /** Status tabs with the most rows seen, so variables and presets survive a brief disconnection. */
+  private knownStatusTabs = new Map<number, number>();
   private chatBrowser = new ChatBrowser();
   private lastError = "";
   constructor(internal: unknown) {
@@ -179,7 +187,8 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       {
         type: "textinput",
         id: "replayFile",
-        label: "Default replay MP4 file (absolute Mac path; blank = the ATEM's latest clip)",
+        label:
+          "Default replay MP4 file (absolute Mac path; blank = the ATEM's latest clip)",
         width: 12,
         default: "",
       },
@@ -250,11 +259,18 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         ]) ?? [],
         this.replayTabs(snapshot).map((output) => [output.id, output.label]),
         snapshot.chat?.tabs.map((tab) => tab.id) ?? [],
+        snapshot.statusBoard?.tabs.map((tab) => [tab.id, tab.rows.length]) ??
+          [],
       ]);
       for (const tab of snapshot.playback?.tabs ?? [])
         this.knownTabs.add(tab.id);
       for (const tab of snapshot.chat?.tabs ?? [])
         this.knownChatTabs.add(tab.id);
+      for (const tab of snapshot.statusBoard?.tabs ?? [])
+        this.knownStatusTabs.set(
+          tab.id,
+          Math.max(tab.rows.length, this.knownStatusTabs.get(tab.id) ?? 0),
+        );
       if (signature !== this.tabSignature) {
         this.tabSignature = signature;
         this.definitions();
@@ -340,6 +356,26 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       choices,
       default: choices[0]!.id,
     };
+  }
+  private statusTabField(): CompanionInputFieldDropdown<"tab"> {
+    const ids = this.snapshot.statusBoard?.tabs.map((tab) => tab.id) ?? [
+      ...this.knownStatusTabs.keys(),
+    ];
+    const choices = ids.length
+      ? ids
+          .sort((a, b) => a - b)
+          .map((id) => ({ id, label: `Status tab ${id}` }))
+      : [{ id: 1, label: "Tab 1 · choose Status as a tab source in the app" }];
+    return {
+      id: "tab",
+      type: "dropdown",
+      label: "Status tab",
+      choices,
+      default: choices[0]!.id,
+    };
+  }
+  private statusTab(id: number) {
+    return this.snapshot.statusBoard?.tabs.find((tab) => tab.id === id);
   }
   private chatTab(id: number) {
     return this.snapshot.chat?.tabs.find((tab) => tab.id === id);
@@ -580,6 +616,16 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
             ),
           ),
       },
+      status_acknowledge: {
+        name: "Status: clear alerts",
+        description:
+          "Like a Master Warning button: the app's chime stops and the rows stop blinking; they keep their alert colors until the problem is solved.",
+        options: [this.statusTabField()],
+        callback: (event) =>
+          this.execute((client) =>
+            client.acknowledgeStatus(Number(event.options.tab)),
+          ),
+      },
     });
     const tabFeedback = (
       id: "playing" | "ready" | "busy" | "output",
@@ -652,6 +698,37 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
           );
         },
       },
+      status_row: {
+        type: "advanced",
+        name: "Status: show a row with its colors",
+        description:
+          "Text and colors of a row of the app's Status panel, blinking with an uncleared alert. Row 0 is the master warning: ALL OK, or the first alert with the number of alerts.",
+        options: [this.statusTabField(), this.statusRowField()],
+        callback: (event) => {
+          const tab = this.statusTab(Number(event.options.tab));
+          return statusStyle(
+            tab,
+            statusRow(tab, Math.trunc(Number(event.options.row))),
+          );
+        },
+      } satisfies CompanionAdvancedFeedbackDefinition<{
+        tab: number;
+        row: number;
+      }>,
+      status_alert: {
+        type: "boolean",
+        name: "Status: alert not yet cleared",
+        description: "Row 0 checks every row of the tab.",
+        options: [this.statusTabField(), this.statusRowField()],
+        defaultStyle: { bgcolor: 0xd70015, color: 0xffffff },
+        callback: (event) => {
+          const tab = this.statusTab(Number(event.options.tab));
+          const position = Math.trunc(Number(event.options.row));
+          const rows =
+            position >= 1 ? [tab?.rows[position - 1]] : (tab?.rows ?? []);
+          return rows.some((row) => !!row?.alert && !row.acknowledged);
+        },
+      },
       chat_ready: {
         type: "boolean",
         name: "Chat: messages available in Highlight mode",
@@ -676,8 +753,27 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
     for (const id of this.knownChatTabs)
       for (const [key, name] of Object.entries(chatVariableNames))
         variables[`chat_${id}_${key}`] = { name: `Chat tab ${id}: ${name}` };
+    for (const [id, rows] of this.knownStatusTabs) {
+      variables[`status_${id}_alerts`] = {
+        name: `Status tab ${id}: alerts not yet cleared`,
+      };
+      for (let row = 1; row <= rows; row++)
+        variables[`status_${id}_row_${row}`] = {
+          name: `Status tab ${id}: row ${row}`,
+        };
+    }
     this.setVariableDefinitions(variables);
     this.presets();
+  }
+  private statusRowField() {
+    return {
+      id: "row" as const,
+      type: "number" as const,
+      label: "Row (1 = first; 0 = master warning)",
+      default: 0,
+      min: 0,
+      max: 16,
+    };
   }
   private publishState(): void {
     const values: ModuleSchema["variables"] = {
@@ -731,6 +827,13 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       };
       for (const [key, value] of Object.entries(data))
         values[`chat_${id}_${key}`] = value;
+    }
+    for (const [id, rows] of this.knownStatusTabs) {
+      const tab = this.statusTab(id);
+      values[`status_${id}_alerts`] =
+        tab?.rows.filter((row) => row.alert && !row.acknowledged).length ?? 0;
+      for (let row = 1; row <= rows; row++)
+        values[`status_${id}_row_${row}`] = tab?.rows[row - 1]?.text ?? "";
     }
     this.setVariableValues(values);
     this.checkAllFeedbacks();
@@ -1012,6 +1115,50 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       groups.push({
         id: `chat_${id}`,
         name: `Chat tab ${id}`,
+        type: "simple",
+        presets: ids,
+      });
+    }
+    for (const [id, rows] of [...this.knownStatusTabs].sort(
+      (a, b) => a[0] - b[0],
+    )) {
+      const ids: string[] = [];
+      for (let row = 0; row <= rows; row++) {
+        const key = `status_${id}_row_${row}`;
+        ids.push(key);
+        definitions[key] = {
+          type: "simple",
+          name:
+            row === 0
+              ? `Status tab ${id}: master warning (press = clear alerts)`
+              : `Status tab ${id}: row ${row} (press = clear alerts)`,
+          style: {
+            text:
+              row === 0 ? "STATUS" : `$(${this.label}:status_${id}_row_${row})`,
+            size: "auto",
+            color: 0x3cf06e,
+            bgcolor: 0x000000,
+            show_topbar: false,
+          },
+          steps: [
+            {
+              down: [{ actionId: "status_acknowledge", options: { tab: id } }],
+              up: [],
+            },
+          ],
+          feedbacks: [
+            { feedbackId: "status_row", options: { tab: id, row } },
+            {
+              feedbackId: "offline",
+              options: {},
+              style: { bgcolor: 0x444444, color: 0xbbbbbb },
+            },
+          ],
+        };
+      }
+      groups.push({
+        id: `status_${id}`,
+        name: `Status tab ${id}`,
         type: "simple",
         presets: ids,
       });

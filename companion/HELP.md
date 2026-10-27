@@ -1,6 +1,6 @@
 # Saccani Live Studio
 
-Controls the separate Saccani Live Studio macOS app. Requires Companion **4.3+**. HTTP/WebSocket supports Companion on macOS, Windows, Linux or Raspberry Pi, with Saccani Live Studio **0.21.0+** on the app Mac (Replay tabs **0.22.1+**, live chat **0.23.0+**).
+Controls the separate Saccani Live Studio macOS app. Requires Companion **4.3+**. HTTP/WebSocket supports Companion on macOS, Windows, Linux or Raspberry Pi, with Saccani Live Studio **0.21.0+** on the app Mac (Replay tabs **0.22.1+**, Status **0.22.42+**, live chat **0.23.0+**).
 
 ## Connect
 
@@ -27,6 +27,10 @@ Stop Replay only cancels the replay started by this connection. For replay start
 Choose **Chat** as a tab's source, connect it to a YouTube broadcast and keep it in **Highlight** mode. **Chat: put a message on air / hide** shows the latest message or the latest Super Chat/membership, and hides it on the next press. **Chat: hide message on air** always hides. On a dial, **Chat: browse messages** moves a preview through the latest 50 messages (left = older) and **Chat: put previewed message on air / hide** sends it on air or hides it. At the newest message the preview follows new messages.
 
 Each chat tab has ready-made presets. Variables `chat_<tab>_…` show status, the message on air and the preview (author, text, Super Chat amount, position). Look, position and **Hide after** are set in the app; in Feed mode only hiding works.
+
+## Status
+
+Choose **Status** as a tab's source: a live checklist of the ATEM, microphones, cameras, recording and streaming, with alerts. The feedback **Status: show a row with its colors** gives a button the text and colors of a row, blinking with an uncleared alert; row **0** is a master warning (ALL OK, or the first alert with the number of alerts). **Status: clear alerts** silences the app's chime and stops the blinking; the rows keep their alert colors until the problem is solved. **Status: alert not yet cleared** is a boolean feedback. Each Status tab has presets for the master warning and every row; variables `status_<tab>_row_<n>` and `status_<tab>_alerts` show the rows and the number of uncleared alerts.
 
 ## Status
 
