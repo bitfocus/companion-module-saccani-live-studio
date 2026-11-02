@@ -84,7 +84,7 @@ export function chatTab(
     throw new Error(`Choose Chat as the source in tab ${id} of the app.`);
   if (showing && tab.mode !== "highlight")
     throw new Error(
-      `Tab ${id} shows the chat as a feed: switch it to Highlight in the app.`,
+      `Channel ${id} shows the chat as a feed: switch it to Highlight in the app.`,
     );
   return tab;
 }

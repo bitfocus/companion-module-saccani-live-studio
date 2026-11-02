@@ -172,7 +172,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         label: "Saccani Live Studio connection",
         width: 12,
         value:
-          "For HTTP / WebSocket, enable Settings… → Remote Control in the app. Leave the token blank unless Require access token is enabled in the app. Enable LAN access for Companion on another computer. Load media and open video outputs in the app. Replay paths always belong to the app Mac.",
+          "In Saccani Live Studio, turn on Settings… → Remote Control. Leave the token empty unless “Require access token” is on in the app. If Companion runs on another computer, also turn on LAN access in the app. Load media and open video outputs in the app. Replay file paths refer to the Mac running the app.",
       },
       {
         type: "textinput",
@@ -191,7 +191,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         type: "textinput",
         id: "replayFile",
         label:
-          "Default replay MP4 file (absolute Mac path; blank = the ATEM's latest clip)",
+          "Default replay MP4 file (full path on the app Mac; empty = the ATEM's latest clip)",
         width: 12,
         default: "",
       },
@@ -308,15 +308,15 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
     const choices = tabs.length
       ? tabs.map((tab) => ({
           id: tab.id,
-          label: `Tab ${tab.id} · ${tab.filename || tab.sourceKind}`,
+          label: `Channel ${tab.id} · ${tab.filename || tab.sourceKind}`,
         }))
       : [...this.knownTabs]
           .sort((a, b) => a - b)
-          .map((id) => ({ id, label: `Tab ${id}` }));
+          .map((id) => ({ id, label: `Channel ${id}` }));
     return {
       id: "tab",
       type: "dropdown",
-      label: "Tab",
+      label: "Channel",
       choices,
       default: choices[0]!.id,
     };
@@ -333,13 +333,18 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
     const choices = tabs.length
       ? tabs.map((output) => ({
           id: output.id,
-          label: `Tab ${output.id}${output.label ? " · " + output.label : ""}`,
+          label: `Channel ${output.id}${output.label ? " · " + output.label : ""}`,
         }))
-      : [{ id: 1, label: "Tab 1 · choose Replay as a tab source in the app" }];
+      : [
+          {
+            id: 1,
+            label: "Channel 1 · choose Replay as a channel’s source in the app",
+          },
+        ];
     return {
       id: "tab",
       type: "dropdown",
-      label: "Replay tab",
+      label: "Replay channel",
       choices,
       default: choices[0]!.id,
       isVisibleExpression: '$(options:mode) == "source"',
@@ -350,12 +355,19 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       ...this.knownChatTabs,
     ];
     const choices = ids.length
-      ? ids.sort((a, b) => a - b).map((id) => ({ id, label: `Chat tab ${id}` }))
-      : [{ id: 1, label: "Tab 1 · choose Chat as a tab source in the app" }];
+      ? ids
+          .sort((a, b) => a - b)
+          .map((id) => ({ id, label: `Chat channel ${id}` }))
+      : [
+          {
+            id: 1,
+            label: "Channel 1 · choose Chat as a channel’s source in the app",
+          },
+        ];
     return {
       id: "tab",
       type: "dropdown",
-      label: "Chat tab",
+      label: "Chat channel",
       choices,
       default: choices[0]!.id,
     };
@@ -367,12 +379,17 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
     const choices = ids.length
       ? ids
           .sort((a, b) => a - b)
-          .map((id) => ({ id, label: `Status tab ${id}` }))
-      : [{ id: 1, label: "Tab 1 · choose Status as a tab source in the app" }];
+          .map((id) => ({ id, label: `Status channel ${id}` }))
+      : [
+          {
+            id: 1,
+            label: "Channel 1 · choose Status as a channel’s source in the app",
+          },
+        ];
     return {
       id: "tab",
       type: "dropdown",
-      label: "Status tab",
+      label: "Status channel",
       choices,
       default: choices[0]!.id,
     };
@@ -466,7 +483,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         },
       },
       volume: {
-        name: "Set / change audio-tab volume",
+        name: "Set / change audio channel volume",
         options: [
           this.tabField("audio"),
           {
@@ -496,29 +513,30 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       replay_start: {
         name: "Replay the latest ATEM clip or an MP4",
         description:
-          "Plays the end of the clip on a Replay tab, for the seconds set in that tab (15 by default).",
+          "Plays the end of the clip on a Replay channel, for the seconds set in that channel (15 by default).",
         options: [
           {
             id: "path",
             type: "textinput",
-            label: "MP4 file (blank = default, else the ATEM's latest clip)",
+            label:
+              "MP4 file (empty = the default file, or the ATEM's latest clip)",
             default: "",
             useVariables: true,
           },
           {
             id: "mode",
             type: "dropdown",
-            label: "Replay tab",
+            label: "Replay channel",
             tooltip:
-              "Audio, framing, overlay and Video Output come from the Replay tab in the app.",
+              "Audio, framing, overlay and Video Output come from the Replay channel in the app.",
             default: "configured",
             disableAutoExpression: true,
             choices: [
               {
                 id: "configured",
-                label: "Last selected Replay tab in the app",
+                label: "Last selected Replay channel in the app",
               },
-              { id: "source", label: "Choose a Replay tab" },
+              { id: "source", label: "Choose a Replay channel" },
             ],
           },
           this.replayTabField(),
@@ -661,10 +679,10 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
     ): CompanionBooleanFeedbackDefinition<{ tab: number }> => ({
       type: "boolean" as const,
       name: {
-        playing: "Tab playing",
-        ready: "Tab ready with loaded media",
-        busy: "Tab loading or replaying",
-        output: "Tab output active",
+        playing: "Channel playing",
+        ready: "Channel ready with loaded media",
+        busy: "Channel loading or replaying",
+        output: "Channel output active",
       }[id]!,
       defaultStyle: {
         color: 0xffffff,
@@ -757,7 +775,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       status_alert: {
         type: "boolean",
         name: "Status: alert not yet cleared",
-        description: "Row 0 checks every row of the tab.",
+        description: "Row 0 checks every row of the channel.",
         options: [this.statusTabField(), this.statusRowField()],
         defaultStyle: { bgcolor: 0xd70015, color: 0xffffff },
         callback: (event) => {
@@ -781,24 +799,26 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
     });
     const variables: Record<string, { name: string }> = {
       online: { name: "App online" },
-      tab_count: { name: "Number of tabs" },
+      tab_count: { name: "Number of channels" },
       last_error: { name: "Last command error" },
       replay_busy: { name: "Replay active or loading" },
-      replay_tab: { name: "Configured replay tab" },
+      replay_tab: { name: "Configured Replay channel" },
     };
     for (const id of this.knownTabs)
       for (const [key, name] of Object.entries(variableNames))
-        variables[`tab_${id}_${key}`] = { name: `Tab ${id}: ${name}` };
+        variables[`tab_${id}_${key}`] = { name: `Channel ${id}: ${name}` };
     for (const id of this.knownChatTabs)
       for (const [key, name] of Object.entries(chatVariableNames))
-        variables[`chat_${id}_${key}`] = { name: `Chat tab ${id}: ${name}` };
+        variables[`chat_${id}_${key}`] = {
+          name: `Chat channel ${id}: ${name}`,
+        };
     for (const [id, rows] of this.knownStatusTabs) {
       variables[`status_${id}_alerts`] = {
-        name: `Status tab ${id}: alerts not yet cleared`,
+        name: `Status channel ${id}: alerts not yet cleared`,
       };
       for (let row = 1; row <= rows; row++)
         variables[`status_${id}_row_${row}`] = {
-          name: `Status tab ${id}: row ${row}`,
+          name: `Status channel ${id}: row ${row}`,
         };
     }
     this.setVariableDefinitions(variables);
@@ -901,7 +921,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         ids.push(key);
         definitions[key] = {
           type: "simple",
-          name: `Tab ${id} ${transportNames[action]}`,
+          name: `Channel ${id} ${transportNames[action]}`,
           style: {
             text: `${transportNames[action].split(" and ")[0]}\n$(${this.label}:tab_${id}_filename)\n$(${this.label}:tab_${id}_position)`,
             size: "auto",
@@ -936,7 +956,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         ids.push(key);
         definitions[key] = {
           type: "simple",
-          name: `Tab ${id} Audio volume dial`,
+          name: `Channel ${id} Audio volume dial`,
           style: {
             text: `VOLUME\n$(${this.label}:tab_${id}_volume)%`,
             size: "auto",
@@ -981,7 +1001,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         });
         definitions[key] = {
           type: "simple",
-          name: `Tab ${id} Video jog dial`,
+          name: `Channel ${id} Video jog dial`,
           style: {
             text: `JOG\n$(${this.label}:tab_${id}_filename)\n$(${this.label}:tab_${id}_position)`,
             size: "auto",
@@ -1015,7 +1035,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       ids.push(channelKey);
       definitions[channelKey] = {
         type: "simple",
-        name: `Tab ${id} Channel enable / disable`,
+        name: `Channel ${id} enable / disable`,
         style: {
           text: `CH ${id}\nOFF`,
           size: "auto",
@@ -1049,7 +1069,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       };
       groups.push({
         id: `tab_${id}`,
-        name: `Tab ${id}`,
+        name: `Channel ${id}`,
         type: "simple",
         presets: ids,
       });
@@ -1142,8 +1162,8 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
           type: "simple",
           name:
             pick === "latest"
-              ? `Chat tab ${id}: show latest / hide`
-              : `Chat tab ${id}: show Super Chat / hide`,
+              ? `Chat channel ${id}: show latest / hide`
+              : `Chat channel ${id}: show Super Chat / hide`,
           style: style(
             pick === "latest"
               ? `CHAT\nLATEST\n${v("on_air_author")}`
@@ -1159,7 +1179,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
         };
       definitions[`chat_${id}_hide`] = {
         type: "simple",
-        name: `Chat tab ${id}: hide`,
+        name: `Chat channel ${id}: hide`,
         style: style("HIDE\nCHAT"),
         steps: [
           { down: [{ actionId: "chat_hide", options: { tab: id } }], up: [] },
@@ -1174,7 +1194,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       });
       definitions[`chat_${id}_dial`] = {
         type: "simple",
-        name: `Chat tab ${id}: browse dial (press = on air / hide)`,
+        name: `Chat channel ${id}: browse dial (press = on air / hide)`,
         style: style(
           `${v("preview_position")}\n${v("preview_author")}\n${v("preview_text")}`,
         ),
@@ -1190,7 +1210,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       };
       groups.push({
         id: `chat_${id}`,
-        name: `Chat tab ${id}`,
+        name: `Chat channel ${id}`,
         type: "simple",
         presets: ids,
       });
@@ -1206,8 +1226,8 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
           type: "simple",
           name:
             row === 0
-              ? `Status tab ${id}: master warning (press = clear alerts)`
-              : `Status tab ${id}: row ${row} (press = clear alerts)`,
+              ? `Status channel ${id}: master warning (press = clear alerts)`
+              : `Status channel ${id}: row ${row} (press = clear alerts)`,
           style: {
             text:
               row === 0 ? "STATUS" : `$(${this.label}:status_${id}_row_${row})`,
@@ -1234,7 +1254,7 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       }
       groups.push({
         id: `status_${id}`,
-        name: `Status tab ${id}`,
+        name: `Status channel ${id}`,
         type: "simple",
         presets: ids,
       });

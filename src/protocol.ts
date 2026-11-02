@@ -209,14 +209,14 @@ export class StudioClient {
         "Saccani Live Studio is offline. Open the app and check the API URL and token.",
       );
     const tab = status.tabs.find((item) => item.id === id);
-    if (!tab) throw new Error(`Tab ${id} no longer exists.`);
+    if (!tab) throw new Error(`Channel ${id} no longer exists.`);
     if (
       !["video", "audio"].includes(tab.sourceKind) ||
       (tab.sourceKind === "audio" && status.audioControl !== true)
     )
       throw new Error("Select a loaded video or audio tab.");
     if (!tab.loaded || (!allowBusy && (tab.loading || tab.replay)))
-      throw new Error(`Tab ${id} has no loaded media or is busy.`);
+      throw new Error(`Channel ${id} has no loaded media or is busy.`);
     if (sourceID !== undefined && sourceID !== tab.sourceID)
       throw new Error(
         "The source changed while the command was queued. Try again.",
