@@ -75,7 +75,7 @@ export function chatTab(
 ): ChatTab {
   if (!status)
     throw new Error(
-      "Open Saccani Live Studio 0.23.0 or later to control the chat.",
+      "Open Saccani Live Studio to control the chat.",
     );
   if (!Number.isSafeInteger(id) || id < 1)
     throw new Error("Select the Saccani Live Studio chat tab.");

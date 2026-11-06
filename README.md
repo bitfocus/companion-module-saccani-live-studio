@@ -7,7 +7,7 @@ Free MIT-licensed Companion connection module for **Saccani Live Studio** on mac
 1. Use **Companion 4.3 or later** on macOS, Windows, Linux or Raspberry Pi. Saccani Live Studio runs on its Mac.
 2. In Companion, open **Modules → Import module package** and choose the `.tgz` from `pkg/`.
 3. Add the **Saccani → Live Studio** connection, enter the app API URL shown in **Settings… → Remote Control**. Leave the token blank by default; supply the app token only if **Require access token** is enabled. The default URL is `http://127.0.0.1:8765`; enable LAN access in the app and use its Mac IPv4 address for a remote controller.
-4. Open Saccani Live Studio, load a video or audio source, and keep the app running. App **0.21.0+** provides the network API; Replay channels need **0.22.1+**, Status **0.22.42+** and live chat **0.23.0+**.
+4. Open Saccani Live Studio, load a video or audio source, and keep the app running. App **0.21.0+** provides the network API; Replay channels need **0.22.1+** and Status **0.22.42+**.
 5. Drag buttons or dials from **Presets** onto your Companion page. Each preset targets the stable channel number; deleting a channel does not renumber the others.
 
 A repository in the Bitfocus organisation has been requested. Until the module is published in Companion, import the package from `pkg/`.
@@ -35,7 +35,7 @@ With app **0.22.1+**, choose **Replay** as a channel's source in the app and con
 
 ## Live chat
 
-With app **0.23.0+**, choose **Chat** as a channel's source, connect it to a YouTube broadcast and keep the channel in **Highlight** mode.
+In the app, choose **Chat** as a channel's source, connect it to a YouTube broadcast and keep the channel in **Highlight** mode.
 
 - **Chat: put a message on air / hide** shows the latest message, or the latest Super Chat or membership; when something is on air, the same press hides it.
 - **Chat: hide message on air** always hides.
