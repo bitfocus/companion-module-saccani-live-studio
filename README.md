@@ -47,6 +47,10 @@ Each Chat channel has presets for these keys and a dial whose text shows the pre
 
 With app **0.22.51+**, **Channel: enable / disable** toggles a channel, or always enables or disables it. A disabled channel shows nothing on its output or as an overlay on another channel, and a Status channel plays no sound; its source keeps running. The app can also disable a channel by itself when the ATEM starts streaming or recording. The **Channel enabled** feedback, the `tab_<n>_enabled` variable and a **Channel enable / disable** preset per channel show and change the state.
 
+## Channel source
+
+With app **0.22.78+**, **Channel: choose what a Channel source shows** sets which channel a channel with a Channel source shows, and the **Channel source shows this channel** feedback lights the button while it does. A channel cannot show an audio channel, itself or a channel that leads back to it.
+
 ## Status
 
 With app **0.22.42+**, choose **Status** as a channel's source: a live checklist of the ATEM, microphones, cameras, recording and streaming, with alerts.

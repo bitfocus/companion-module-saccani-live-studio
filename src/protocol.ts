@@ -29,6 +29,8 @@ export type Tab = {
   volume?: number;
   /** Whether the channel shows its picture (app 0.22.51+). */
   enabled?: boolean;
+  /** The channel a Channel source shows, or null (app 0.22.78+). */
+  sourceChannel?: number | null;
 };
 export type PlaybackStatus = {
   seenAt: number;
@@ -40,6 +42,7 @@ export type PlaybackStatus = {
   playbackTransportControl?: boolean;
   audioVolumeControl?: boolean;
   channelEnableControl?: boolean;
+  channelSourceControl?: boolean;
   tabs: Tab[];
 };
 export type ReplayOutput = {
@@ -389,6 +392,41 @@ export class StudioClient {
               ? "disable"
               : "toggle-enabled",
           {},
+          controller.signal,
+        );
+      } finally {
+        this.pending.delete(controller);
+      }
+    });
+  }
+  /** Chooses which channel a Channel source shows. */
+  channelSource(id: number, channel: number): Promise<void> {
+    return this.serial(async () => {
+      if (
+        !Number.isSafeInteger(id) ||
+        id < 1 ||
+        !Number.isSafeInteger(channel) ||
+        channel < 1
+      )
+        throw new Error("Select a valid channel number.");
+      const { playback } = await this.snapshot();
+      if (playback?.channelSourceControl !== true)
+        throw new Error(
+          "Open Saccani Live Studio 0.22.78 or later to choose what a Channel source shows.",
+        );
+      const tab = playback.tabs.find((item) => item.id === id);
+      if (!tab) throw new Error(`Channel ${id} no longer exists in the app.`);
+      if (tab.sourceKind !== "channel")
+        throw new Error(`Channel ${id} does not use a Channel source.`);
+      if (!playback.tabs.some((item) => item.id === channel))
+        throw new Error(`Channel ${channel} no longer exists in the app.`);
+      const controller = new AbortController();
+      this.pending.add(controller);
+      try {
+        await this.network.command(
+          id,
+          "show-channel",
+          { channel },
           controller.signal,
         );
       } finally {

@@ -1,6 +1,6 @@
 # Saccani Live Studio
 
-Controls the Saccani Live Studio macOS app. Requires Companion **4.3+**. Companion can run on macOS, Windows, Linux or Raspberry Pi; the app needs Saccani Live Studio **0.21.0+** (Replay channels **0.22.1+**, the ATEM's latest clip **0.22.30+**, Status **0.22.42+**, channel enable **0.22.51+**).
+Controls the Saccani Live Studio macOS app. Requires Companion **4.3+**. Companion can run on macOS, Windows, Linux or Raspberry Pi; the app needs Saccani Live Studio **0.21.0+** (Replay channels **0.22.1+**, the ATEM's latest clip **0.22.30+**, Status **0.22.42+**, channel enable **0.22.51+**, Channel source **0.22.78+**).
 
 ## Connect
 
@@ -51,6 +51,10 @@ Each Status channel has presets for the master warning and every row. Variables 
 ## Channel enable
 
 **Channel: enable / disable** turns a channel of the app on or off, or always enables or disables it. A disabled channel shows nothing on its output or as an overlay, and a Status channel stays silent; its source keeps running. The **Channel enabled** feedback, the `tab_<n>_enabled` variable and a preset for each channel come with it.
+
+## Channel source
+
+**Channel: choose what a Channel source shows** sets which channel a channel with a Channel source shows, and the **Channel source shows this channel** feedback lights the button while it does. Needs app **0.22.78+**. A channel cannot show an audio channel, itself or a channel that leads back to it.
 
 ## Variables
 

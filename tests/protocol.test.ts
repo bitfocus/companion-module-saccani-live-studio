@@ -555,6 +555,39 @@ test("display counters are clip-relative, clamp invalid values, and support frac
   assert.equal(formatTime(Infinity), "00:00:00");
 });
 
+test("Channel source commands need the app's capability and a Channel source", async () => {
+  const f = await fixture();
+  try {
+    const tab = f.status.tabs[0]!;
+    const other = f.status.tabs[1]!;
+    await assert.rejects(f.client.channelSource(tab.id, other.id), /0\.22\.78/);
+    (f.status as { channelSourceControl?: boolean }).channelSourceControl =
+      true;
+    await f.publish();
+    await assert.rejects(
+      f.client.channelSource(tab.id, other.id),
+      /does not use a Channel source/,
+    );
+    tab.sourceKind = "channel";
+    await f.publish();
+    await assert.rejects(f.client.channelSource(99, other.id), /Channel 99/);
+    await assert.rejects(f.client.channelSource(tab.id, 99), /Channel 99/);
+    await assert.rejects(f.client.channelSource(tab.id, 0), /valid channel/);
+    assert.equal(f.commands.length, 0);
+    await f.client.channelSource(tab.id, other.id);
+    assert.deepEqual(
+      f.commands.map((command) => [
+        command.tab,
+        command.action,
+        command.channel,
+      ]),
+      [[tab.id, "show-channel", other.id]],
+    );
+  } finally {
+    await f.close();
+  }
+});
+
 test("channel enable commands need the app's capability and an existing channel", async () => {
   const f = await fixture();
   try {

@@ -1,6 +1,6 @@
 {
   "name": "companion-module-saccani-live-studio",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "description": "Saccani Live Studio playback, audio, jog, replay, live chat and Status controls for Bitfocus Companion",
   "type": "module",
   "main": "dist/main.js",

@@ -57,6 +57,7 @@ export type ModuleSchema = {
     chat_preview: { options: { tab: number } };
     status_acknowledge: { options: { tab: number } };
     channel_enable: { options: { tab: number; mode: "toggle" | "on" | "off" } };
+    channel_source: { options: { tab: number; channel: number } };
   };
   feedbacks: {
     offline: { type: "boolean"; options: Record<string, never> };
@@ -75,6 +76,10 @@ export type ModuleSchema = {
       options: { tab: number };
     };
   } & {
+    channel_source_shows: {
+      type: "boolean";
+      options: { tab: number; channel: number };
+    };
     status_row: { type: "advanced"; options: { tab: number; row: number } };
     status_alert: { type: "boolean"; options: { tab: number; row: number } };
   };
@@ -298,8 +303,11 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
       this.timer.unref();
     }
   }
+  private shownChannelField(): CompanionInputFieldDropdown<"channel"> {
+    return { ...this.tabField(), id: "channel", label: "Channel to show" };
+  }
   private tabField(
-    kind?: "video" | "audio",
+    kind?: "video" | "audio" | "channel",
   ): CompanionInputFieldDropdown<"tab"> {
     const tabs =
       this.snapshot.playback?.tabs.filter(
@@ -663,6 +671,19 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
             ),
           ),
       },
+      channel_source: {
+        name: "Channel: choose what a Channel source shows",
+        description:
+          "The channel must use a Channel source in the app. A channel cannot show an audio channel, itself or a channel that leads back to it.",
+        options: [this.tabField("channel"), this.shownChannelField()],
+        callback: (event) =>
+          this.execute((client) =>
+            client.channelSource(
+              Number(event.options.tab),
+              Number(event.options.channel),
+            ),
+          ),
+      },
       status_acknowledge: {
         name: "Status: clear alerts",
         description:
@@ -754,6 +775,16 @@ export default class SaccaniStudioInstance extends InstanceBase<ModuleSchema> {
           this.snapshot.playback?.tabs.find(
             (tab) => tab.id === Number(event.options.tab),
           )?.enabled === true,
+      },
+      channel_source_shows: {
+        type: "boolean",
+        name: "Channel source shows this channel",
+        options: [this.tabField("channel"), this.shownChannelField()],
+        defaultStyle: { bgcolor: 0x176b34, color: 0xffffff },
+        callback: (event) =>
+          this.snapshot.playback?.tabs.find(
+            (tab) => tab.id === Number(event.options.tab),
+          )?.sourceChannel === Number(event.options.channel),
       },
       status_row: {
         type: "advanced",
