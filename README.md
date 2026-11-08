@@ -1,6 +1,10 @@
 # Saccani Live Studio for Bitfocus Companion
 
-Free MIT-licensed Companion connection module for **Saccani Live Studio** on macOS. Version **0.6.2**. It controls only the app; use Companion’s official Blackmagic ATEM module for the switcher, cameras and audio.
+Free MIT-licensed Companion connection module for **Saccani Live Studio** on macOS. Version **1.0.0**. It controls only the app; use Companion’s official Blackmagic ATEM module for the switcher, cameras and audio.
+
+Saccani Live Studio is a free macOS app: [get it on the Mac App Store](https://apps.apple.com/us/app/saccani-live-studio/id6819031634?mt=12).
+
+[![Saccani Live Studio on macOS](companion/saccani-live-studio.jpg)](https://apps.apple.com/us/app/saccani-live-studio/id6819031634?mt=12)
 
 ## Install
 
@@ -10,7 +14,7 @@ Free MIT-licensed Companion connection module for **Saccani Live Studio** on mac
 4. Open Saccani Live Studio, load a video or audio source, and keep the app running. App **0.21.0+** provides the network API; Replay channels need **0.22.1+** and Status **0.22.42+**.
 5. Drag buttons or dials from **Presets** onto your Companion page. Each preset targets the stable channel number; deleting a channel does not renumber the others.
 
-A repository in the Bitfocus organisation has been requested. Until the module is published in Companion, import the package from `pkg/`.
+The module lives in the Bitfocus organisation and version 1.0.0 is awaiting Bitfocus review. Until it appears in Companion's module list, import the package from `pkg/`.
 
 ## Controls
 

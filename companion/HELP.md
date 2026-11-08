@@ -1,6 +1,8 @@
 # Saccani Live Studio
 
-Controls the Saccani Live Studio macOS app. Requires Companion **4.3+**. Companion can run on macOS, Windows, Linux or Raspberry Pi; the app needs Saccani Live Studio **0.21.0+** (Replay channels **0.22.1+**, the ATEM's latest clip **0.22.30+**, Status **0.22.42+**, channel enable **0.22.51+**, Channel source **0.22.78+**).
+[![Saccani Live Studio on macOS](saccani-live-studio.jpg)](https://apps.apple.com/us/app/saccani-live-studio/id6819031634?mt=12)
+
+Controls the Saccani Live Studio macOS app, free on the [Mac App Store](https://apps.apple.com/us/app/saccani-live-studio/id6819031634?mt=12). Requires Companion **4.3+**. Companion can run on macOS, Windows, Linux or Raspberry Pi; the app needs Saccani Live Studio **0.21.0+** (Replay channels **0.22.1+**, the ATEM's latest clip **0.22.30+**, Status **0.22.42+**, channel enable **0.22.51+**, Channel source **0.22.78+**).
 
 ## Connect
 
