@@ -1,6 +1,6 @@
 # Saccani Live Studio for Bitfocus Companion
 
-Free MIT-licensed Companion connection module for **Saccani Live Studio** on macOS. Version **1.0.1**. It controls only the app; use Companion’s official Blackmagic ATEM module for the switcher, cameras and audio.
+Free MIT-licensed Companion connection module for **Saccani Live Studio** on macOS. Version **1.0.2**. It controls only the app; use Companion’s official Blackmagic ATEM module for the switcher, cameras and audio.
 
 Saccani Live Studio is a free macOS app: [get it on the Mac App Store](https://apps.apple.com/us/app/saccani-live-studio/id6819031634?mt=12).
 
@@ -9,12 +9,12 @@ Saccani Live Studio is a free macOS app: [get it on the Mac App Store](https://a
 ## Install
 
 1. Use **Companion 4.3 or later** on macOS, Windows, Linux or Raspberry Pi. Saccani Live Studio runs on its Mac.
-2. In Companion, open **Modules → Import module package** and choose the `.tgz` from `pkg/`.
+2. In Companion, open **Modules → Import module package** and choose `saccani-live-studio-<version>.tgz` (built by `yarn package` in the module folder).
 3. Add the **Saccani → Live Studio** connection, enter the app API URL shown in **Settings… → Remote Control**. Leave the token blank by default; supply the app token only if **Require access token** is enabled. The default URL is `http://127.0.0.1:8765`; enable LAN access in the app and use its Mac IPv4 address for a remote controller.
 4. Open Saccani Live Studio, load a video or audio source, and keep the app running. App **0.21.0+** provides the network API; Replay channels need **0.22.1+** and Status **0.22.42+**.
-5. Drag buttons or dials from **Presets** onto your Companion page. Each preset targets the stable channel number; deleting a channel does not renumber the others.
+5. Drag buttons or dials from **Presets** onto your Companion page. Each preset targets the stable channel number; deleting a channel does not renumber the others. Each channel gets the presets its source can use: transport for video and audio, a jog dial for video, a volume dial for audio.
 
-The module lives in the Bitfocus organisation and version 1.0.1 is awaiting Bitfocus review. Until it appears in Companion's module list, import the package from `pkg/`.
+The module lives in the Bitfocus organisation and version 1.0.2 is awaiting Bitfocus review. Until it appears in Companion's module list, import the `.tgz` package built by `yarn package`.
 
 ## Controls
 
@@ -53,7 +53,7 @@ With app **0.22.51+**, **Channel: enable / disable** toggles a channel, or alway
 
 ## Channel source
 
-With app **0.22.78+**, **Channel: choose what a Channel source shows** sets which channel a channel with a Channel source shows, and the **Channel source shows this channel** feedback lights the button while it does. A channel cannot show an audio channel, itself or a channel that leads back to it.
+With app **0.22.78+**, **Channel: choose what a Channel source shows** sets which channel a channel with a Channel source shows, and the **Channel source shows this channel** feedback lights the button while it does; each such channel has a preset for every channel it can show. A channel cannot show an audio channel, itself or a channel that leads back to it.
 
 ## Status
 
@@ -86,11 +86,12 @@ Requires Node **22.20+ within Node 22** and Yarn 4 (via Corepack). Run:
 ```sh
 nvm use
 corepack yarn install
-corepack yarn check
+corepack yarn lint
 corepack yarn test
 corepack yarn package
+corepack yarn test:package
 ```
 
-The official Bitfocus packaging tool validates the manifest and bundled licenses and generates the `.tgz` in `pkg/`, with the assembled license notices inside the package. No Elgato SDK, ATEM library or native Blackmagic helper is bundled. The app is a separate product with its own license.
+The official Bitfocus packaging tool validates the manifest and bundled licenses and generates `saccani-live-studio-<version>.tgz` in the module folder, with the assembled license notices inside the package. No Elgato SDK, ATEM library or native Blackmagic helper is bundled. The app is a separate product with its own license.
 
-Automated checks cover command acknowledgement, unavailable/stale/busy state, clip replacement during queued jogs, relative-volume sequencing, replay ownership/cancellation, Replay channel validation, chat commands and browsing, Status rows, blinking and clearing, and SDK action/feedback/preset registration. The native app's regressions additionally exercise actual video/audio players and replay restoration. Automated checks are not a full show/hardware acceptance test.
+Automated checks cover command acknowledgement, unavailable/stale/busy state, clip replacement during queued jogs, relative-volume sequencing, replay ownership/cancellation, Replay channel validation, chat commands and browsing, Status rows, blinking and clearing, SDK action/feedback/preset registration, presets that fit each channel's source, and sending Companion only the variables and feedbacks that changed. `yarn test:package` runs the Companion host test again against the packaged module. The native app's regressions additionally exercise actual video/audio players and replay restoration. Automated checks are not a full show/hardware acceptance test.

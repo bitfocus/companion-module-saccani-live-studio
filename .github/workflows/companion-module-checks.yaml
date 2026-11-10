@@ -7,9 +7,7 @@ jobs:
   check:
     name: Check module
 
-    # The shared workflow grants its job only packages: read, so checkout cannot read a private
-    # repository. Run it on the public bitfocus repository; private copies rely on Node CI.
-    if: ${{ !contains(github.repository, 'companion-module-template-') && !github.event.repository.private }}
+    if: ${{ !contains(github.repository, 'companion-module-template-') }}
 
     permissions:
       packages: read

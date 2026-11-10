@@ -14,7 +14,7 @@ In the Mac App Store edition, allow replay recordings with **Settings… → Gen
 
 ## Play, audio and jog
 
-Each action uses a channel's stable number; the presets come ready for each channel.
+Each action uses a channel's stable number; the presets come ready for each channel and fit its source: transport for video and audio, a jog dial for video, a volume dial for audio.
 
 - **Play** resumes, **Stop** goes back to the start, **Pause** keeps the position, **Restart** goes back to the start and plays.
 - **Video jog** keeps playing or paused as it was. On a dial, each step moves one frame; press for Play / Pause.
@@ -56,8 +56,8 @@ Each Status channel has presets for the master warning and every row. Variables 
 
 ## Channel source
 
-**Channel: choose what a Channel source shows** sets which channel a channel with a Channel source shows, and the **Channel source shows this channel** feedback lights the button while it does. Needs app **0.22.78+**. A channel cannot show an audio channel, itself or a channel that leads back to it.
+**Channel: choose what a Channel source shows** sets which channel a channel with a Channel source shows, and the **Channel source shows this channel** feedback lights the button while it does; each such channel has a preset for every channel it can show. Needs app **0.22.78+**. A channel cannot show an audio channel, itself or a channel that leads back to it.
 
 ## Variables
 
-For each channel, variables `tab_<n>_…` show the position in the clip, the time left, progress, whether it is loaded, playing, busy or with its output open, the filename and the audio volume. Times are counted from the start of the clip; they are not camera or SMPTE drop-frame timecode. When the app goes offline, playback indicators are cleared. Replay busy also covers replays started elsewhere.
+For each channel, variables `tab_<n>_…` show the position in the clip, the time left, progress, whether it is loaded, playing, busy or with its output open, the filename and the audio volume. Seconds have one decimal and progress is a whole percent. Times are counted from the start of the clip; they are not camera or SMPTE drop-frame timecode. When the app goes offline, playback indicators are cleared. Replay busy also covers replays started elsewhere.

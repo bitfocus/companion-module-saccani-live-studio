@@ -1,38 +1,56 @@
 {
-  "name": "companion-module-saccani-live-studio",
-  "version": "1.0.1",
-  "description": "Saccani Live Studio playback, audio, jog, replay, live chat and Status controls for Bitfocus Companion",
-  "type": "module",
-  "main": "dist/main.js",
-  "license": "MIT",
-  "author": "Massimo Saccani",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/bitfocus/companion-module-saccani-live-studio.git"
-  },
-  "bugs": "https://github.com/bitfocus/companion-module-saccani-live-studio/issues",
-  "engines": {
-    "node": "^22.20"
-  },
-  "packageManager": "yarn@4.17.0",
-  "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit",
-    "test": "yarn build && node --experimental-strip-types --test tests/*.test.ts",
-    "package": "yarn check && yarn test && companion-module-build --output pkg/saccani-live-studio-1.0.1 && SACCANI_MODULE_ENTRY=../pkg/saccani-live-studio/main.js node --experimental-strip-types --test tests/module.test.ts",
-    "format": "prettier --write src tests companion package.json tsconfig.json README.md"
-  },
-  "dependencies": {
-    "@companion-module/base": "2.0.4"
-  },
-  "devDependencies": {
-    "@companion-module/tools": "3.1.0",
-    "@types/node": "22.19.17",
-    "eslint": "10.2.0",
-    "prettier": "3.8.3",
-    "typescript": "6.0.3"
-  },
-  "resolutions": {
-    "minimatch": "^11.0.1"
-  }
+	"name": "companion-module-saccani-live-studio",
+	"version": "1.0.2",
+	"description": "Saccani Live Studio playback, audio, jog, replay, live chat and Status controls for Bitfocus Companion",
+	"main": "dist/main.js",
+	"type": "module",
+	"private": true,
+	"scripts": {
+		"postinstall": "husky",
+		"format": "prettier -w .",
+		"package": "run build && companion-module-build",
+		"build": "rimraf dist && run build:main",
+		"build:main": "tsc -p tsconfig.build.json",
+		"dev": "tsc -p tsconfig.build.json --watch",
+		"lint:raw": "eslint",
+		"lint": "run lint:raw .",
+		"check": "tsc -p tsconfig.json --noEmit",
+		"test": "run build && node --experimental-strip-types --test tests/*.test.ts",
+		"test:package": "SACCANI_MODULE_ENTRY=../pkg/saccani-live-studio/main.js node --experimental-strip-types --test tests/module.test.ts"
+	},
+	"license": "MIT",
+	"author": "Massimo Saccani",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/bitfocus/companion-module-saccani-live-studio.git"
+	},
+	"bugs": "https://github.com/bitfocus/companion-module-saccani-live-studio/issues",
+	"engines": {
+		"node": "^22.20",
+		"yarn": "^4"
+	},
+	"dependencies": {
+		"@companion-module/base": "2.0.4"
+	},
+	"devDependencies": {
+		"@companion-module/tools": "^3.1.0",
+		"@types/node": "^22.19.17",
+		"eslint": "^9.39.4",
+		"husky": "^9.1.7",
+		"lint-staged": "^16.4.0",
+		"prettier": "^3.8.3",
+		"rimraf": "^6.1.3",
+		"typescript": "~6.0.3",
+		"typescript-eslint": "^8.59.0"
+	},
+	"prettier": "@companion-module/tools/.prettierrc.json",
+	"lint-staged": {
+		"*.{css,json,md,scss}": [
+			"prettier --write"
+		],
+		"*.{ts,tsx,js,jsx}": [
+			"yarn lint:raw --fix"
+		]
+	},
+	"packageManager": "yarn@4.17.0"
 }
